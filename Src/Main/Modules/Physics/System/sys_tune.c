@@ -129,49 +129,67 @@ static void Px_ADM_is0_by_y_CM(Physics_T *const phys)
 {
   double dy_CM = 0,y_CM_new;
   const double px    = sysGetd("Px_ADM");
-  const double W     = sysGetd("P_ADM_control_update_weight");
-  const double dP    = sysGetd("P_ADM_control_tolerance");
-  const double P_thr = sysGetd("P_ADM_control_threshold");
-  const double Omega = sysGetd("angular_velocity");
-  const double y_CM0 = sysGetd("y_CM");
-  const double admM  = sysGetd("ADM_mass");
-  
-  printf(Pretty0"adjusting Px_ADM by y_CM ...\n");
-  
-  /* changing center of mass */
-  dy_CM    = -px/(Omega*(admM));
-  y_CM_new = y_CM0+dy_CM*W;
-  
-  /* having found new x_CM now update */
-  if (GRT(fabs(px),dP) && LSS(fabs(px),P_thr))
-  {
-    sysSetd("y_CM",y_CM_new);
-  }
-}
-
-/* find x_CM by demanding Py_ADM = 0 */
-static void Py_ADM_is0_by_x_CM(Physics_T *const phys)
-{
-  double  dx_CM = 0,x_CM_new;
   const double py    = sysGetd("Py_ADM");
   const double W     = sysGetd("P_ADM_control_update_weight");
   const double dP    = sysGetd("P_ADM_control_tolerance");
   const double P_thr = sysGetd("P_ADM_control_threshold");
   const double Omega = sysGetd("angular_velocity");
+  const double a     = infall_rate(phys);
+  const double y_CM0 = sysGetd("y_CM");
+  const double admM  = sysGetd("ADM_mass");
+  const double P_err = (a == 0.) ? fabs(px) : sqrt(px*px+py*py);
+  
+  printf(Pretty0"adjusting Px_ADM by y_CM ...\n");
+  
+  /* changing center of mass */
+  dy_CM    = (a*py-Omega*px)/(admM*(a*a+Omega*Omega));
+  y_CM_new = y_CM0+dy_CM*W;
+  
+  /* having found new x_CM now update */
+  if (GRT(P_err,dP) && LSS(P_err,P_thr))
+  {
+    sysSetd("y_CM",y_CM_new);
+  }
+}
+  
+/* find x_CM by demanding Py_ADM = 0 */
+static void Py_ADM_is0_by_x_CM(Physics_T *const phys)
+{
+  double  dx_CM = 0,x_CM_new;
+  const double px    = sysGetd("Px_ADM");
+  const double py    = sysGetd("Py_ADM");
+  const double W     = sysGetd("P_ADM_control_update_weight");
+  const double dP    = sysGetd("P_ADM_control_tolerance");
+  const double P_thr = sysGetd("P_ADM_control_threshold");
+  const double Omega = sysGetd("angular_velocity");
+  const double a     = infall_rate(phys);
   const double x_CM0 = sysGetd("x_CM");
   const double admM  = sysGetd("ADM_mass");
+  const double P_err = (a == 0.) ? fabs(py) : sqrt(px*px+py*py);
   
   printf(Pretty0"adjusting Py_ADM by x_CM ...\n");
   
   /* changing center of mass */
-  dx_CM    = py/(Omega*(admM));
+  dx_CM    = (a*px+Omega*py)/(admM*(a*a+Omega*Omega));
   x_CM_new = x_CM0+dx_CM*W;
   
   /* having found new x_CM now update */
-  if (GRT(fabs(py),dP) && LSS(fabs(py),P_thr))
+  if (GRT(P_err,dP) && LSS(P_err,P_thr))
   {
     sysSetd("x_CM",x_CM_new);
   }
+}
+
+static double infall_rate(Physics_T *const phys)
+{
+  double Vr = 0., D = 0.;
+  
+  sprintf(phys->par,"%s_%s",phys->ssys,"infall_velocity");
+  if (PgetdEZ(phys->par) != DBL_MAX) Vr = PgetdEZ(phys->par);
+  sprintf(phys->par,"%s_%s",phys->ssys,"separation");
+  if (PgetdEZ(phys->par) != DBL_MAX) D = PgetdEZ(phys->par);
+  
+  return (D > 0.) ? Vr/D : 0.;
 }
 
 

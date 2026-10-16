@@ -277,7 +277,7 @@ static int x_of_X_CS_coord(double *const x,const double *const X,const Patch_T *
       x1   = S*(xc1 == DBL_MAX ? R_interpolation_CS(R1_f,X)/d : xc1);
       x2   = S*(xc2 == DBL_MAX ? R_interpolation_CS(R2_f,X)/d : xc2);
       
-      x[c] = x1+(x2-x1)*X[2];
+      x[c] = xc_of_X2_OB_T_SCS(patch,x1,x2,X[2]);
       x[a] = S*x[c]*X[0];
       x[b] = S*x[c]*X[1];
       
@@ -457,7 +457,7 @@ static int X_of_x_CS_coord(double *const X,
       d    = sqrt(1+Pow2(X[0])+Pow2(X[1]));
       x1   = S*(xc1 == DBL_MAX ? R_interpolation_CS(R1_f,X)/d : xc1);
       x2   = S*(xc2 == DBL_MAX ? R_interpolation_CS(R2_f,X)/d : xc2);
-      X[2] = (x[k]-x1)/(x2-x1);
+      X[2] = X2_of_xc_OB_T_SCS(patch,x1,x2,x[k]);
       
       #if 0
       const Uint *n;

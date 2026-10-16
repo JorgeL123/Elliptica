@@ -541,6 +541,28 @@ populate_CS_patch_SplitCS
           patch->CoordSysInfo->CubedSphericalCoord->side = side;
           patch->CoordSysInfo->CubedSphericalCoord->type = type;
           
+          /* log radial map (log(x_c) linear in X[2]) for the around
+          // patches, it resolves the near zone of large separations
+          // while fields growing ~ r (e.g. co-moving shift) and ~ 1/r
+          // both stay smooth in X[2].
+          // stretch: x_c = x1+(x2-x1)*(exp(alpha X)-1)/(exp(alpha)-1),
+          // alpha -> 0 is linear, alpha = log(x2/x1) is the log map. */
+          const int around_patch =
+            (type == OB_T_SCS && strstr(obj,"_around"));
+          patch->CoordSysInfo->CubedSphericalCoord->log_c_map = 0;
+          if (around_patch && get_parameter("grid_SplitCS_around_radial_map"))
+          {
+            if (Pcmps("grid_SplitCS_around_radial_map","log"))
+              patch->CoordSysInfo->CubedSphericalCoord->log_c_map = 1;
+            else if (Pcmps("grid_SplitCS_around_radial_map","stretch"))
+            {
+              patch->CoordSysInfo->CubedSphericalCoord->log_c_map = 2;
+              patch->CoordSysInfo->CubedSphericalCoord->c_map_alpha =
+                Pgetd("grid_SplitCS_around_radial_map_alpha");
+              assert(patch->CoordSysInfo->CubedSphericalCoord->c_map_alpha > 0);
+            }
+          }
+
           /* filling n */
           patch->n[0] = (Uint)Pgeti(P_"SplitCS_n_a");
           patch->n[1] = (Uint)Pgeti(P_"SplitCS_n_b");
@@ -769,7 +791,7 @@ void make_nodes_CubedSpherical_coord(Patch_T *const patch)
         x1 = S*(xc1 == DBL_MAX ? R1_f->v[i_j_k_to_ijk(n,i,j,0)]/d : xc1);
         x2 = S*(xc2 == DBL_MAX ? R2_f->v[i_j_k_to_ijk(n,i,j,0)]/d : xc2);
         
-        x[c] = x1+(x2-x1)*X[2];
+        x[c] = xc_of_X2_OB_T_SCS(patch,x1,x2,X[2]);
         x[a] = S*x[c]*X[0];
         x[b] = S*x[c]*X[1];
         
@@ -3655,17 +3677,23 @@ void set_params_of_split_cubed_spherical_grid(Grid_Char_T *const grid_char)
     double rmax = l/2 > MaxMag_d(w/2,h/2) ? l/2 : MaxMag_d(w/2,h/2);
     double rmin = grid_char->params[obj_n]->r_min;
     double rstep = (rmax-rmin)/Nsd[2];
-    
+    /* radial splits of the around patches: uniform (default) or
+    // geometric, r_k = rmin*(rmax/rmin)^(k/Nsplit). geometric puts the
+    // inner shells close to the object, needed for large separations. */
+    const int geometric_r =
+      get_parameter("grid_SplitCS_around_radial_spacing") &&
+      Pcmps("grid_SplitCS_around_radial_spacing","geometric");
+
     sprintf(obj,"%s_around",objstem);
     set_object_name_split_CS(obj,obj);
-    
+
     /* some checks */
     assert(l > 0 && w > 0 && h > 0);
     /* must be lower case letters */
     if(strcmp(dir,"left") && strcmp(dir,"right"))
       Error0("Direction must be lower case!");
     assert(rstep > 0);
-    
+
     for (d0 = 0; d0 < Nsd[0]; d0++)
     {
       min[0] = Xm + step[0]*d0;
@@ -3675,15 +3703,23 @@ void set_params_of_split_cubed_spherical_grid(Grid_Char_T *const grid_char)
       {
         min[1] = Ym + step[1]*d1;
         max[1] = Ym + step[1]*(d1+1);
-        
+
         for (d2 = 0; d2 <  Nsd[2]; d2++)
         {
           min[2] = Zm;
           max[2] = ZM;
-          
-          rdown  = rmin + rstep*d2;
-          rup    = rmin + rstep*(d2+1);
-          
+
+          if (geometric_r)
+          {
+            rdown = rmin*pow(rmax/rmin,(double)d2/Nsd[2]);
+            rup   = rmin*pow(rmax/rmin,(double)(d2+1)/Nsd[2]);
+          }
+          else
+          {
+            rdown  = rmin + rstep*d2;
+            rup    = rmin + rstep*(d2+1);
+          }
+
           assert(rup < diag);
           
           /* set xc to default which is DBL_MAX.
@@ -5757,6 +5793,77 @@ void alloc_patches_SBH_CubedSpherical_grid(Grid_T *const grid)
   
 }
 
+/* dX[2]/dx^l for OB_T_SCS given x_c, its bounding surfaces xc1, xc2 and
+// their derivatives dxc1 = dxc1/dx^l, dxc2 = dxc2/dx^l; dxc = dx_c/dx^l.
+// linear map: X[2] = (x_c-xc1)/(xc2-xc1),
+// log map:    X[2] = log(x_c/xc1)/log(xc2/xc1).
+// ->return value: dX[2]/dx^l */
+static double dc_dx_OB_T_SCS(const Patch_T *const patch,
+                             const double xc,const double xc1,const double xc2,
+                             const double dxc,const double dxc1,const double dxc2)
+{
+  const int map = patch->CoordSysInfo->CubedSphericalCoord->log_c_map;
+  
+  if (map == 1)
+  {
+    const double L  = log(xc2/xc1);
+    const double Z  = log(xc/xc1)/L;
+    const double g1 = dxc1/xc1;
+    
+    return ((dxc/xc-g1)-Z*(dxc2/xc2-g1))/L;
+  }
+  
+  /* du/dx^l of the linear coordinate u = (x_c-xc1)/(xc2-xc1) */
+  const double du = ((dxc-dxc1)-(xc-xc1)*(dxc2-dxc1)/(xc2-xc1))/(xc2-xc1);
+  
+  if (map == 2)
+  {
+    /* X[2] = log(1+u*(e^a-1))/a => dX[2]/du = (e^a-1)/(a*(1+u*(e^a-1))) */
+    const double a  = patch->CoordSysInfo->CubedSphericalCoord->c_map_alpha;
+    const double em = expm1(a);
+    const double u  = (xc-xc1)/(xc2-xc1);
+    
+    return du*em/(a*(1+u*em));
+  }
+  
+  return du;
+}
+
+/* x_c of X[2] for OB_T_SCS given the bounding x1 and x2 (signed),
+// see log_c_map for the maps. */
+double xc_of_X2_OB_T_SCS(const Patch_T *const patch,
+                         const double x1,const double x2,const double X2)
+{
+  const int map = patch->CoordSysInfo->CubedSphericalCoord->log_c_map;
+  
+  if (map == 1)
+    return x1*pow(x2/x1,X2);
+  else if (map == 2)
+  {
+    const double a = patch->CoordSysInfo->CubedSphericalCoord->c_map_alpha;
+    return x1+(x2-x1)*expm1(a*X2)/expm1(a);
+  }
+  
+  return x1+(x2-x1)*X2;
+}
+
+/* X[2] of x_c for OB_T_SCS, the inverse of xc_of_X2_OB_T_SCS. */
+double X2_of_xc_OB_T_SCS(const Patch_T *const patch,
+                         const double x1,const double x2,const double xc)
+{
+  const int map = patch->CoordSysInfo->CubedSphericalCoord->log_c_map;
+  
+  if (map == 1)
+    return log(xc/x1)/log(x2/x1);
+  else if (map == 2)
+  {
+    const double a = patch->CoordSysInfo->CubedSphericalCoord->c_map_alpha;
+    return log1p((xc-x1)/(x2-x1)*expm1(a))/a;
+  }
+  
+  return (xc-x1)/(x2-x1);
+}
+
 /* Jacobian transformation for split cubed spherical patch.type: OB_T_SCS
 // convention:
 // _a_ = X, _b_ = Y, _c_ = Z
@@ -5844,7 +5951,7 @@ double JT_OJ_T_SCS(Patch_T *const patch,const Dd_T q2_e, const Dd_T q1_e,const U
                   0.);
       dxc2_dx *= S;
       
-      J = ((kd[k==l]-dxc1_dx)-(x[k]-xc1)*(dxc2_dx-dxc1_dx)/(xc2-xc1))/(xc2-xc1);
+      J = dc_dx_OB_T_SCS(patch,x[k],xc1,xc2,kd[k==l],dxc1_dx,dxc2_dx);
     break;
     case dc_dy:
       l  = 1;
@@ -5876,7 +5983,7 @@ double JT_OJ_T_SCS(Patch_T *const patch,const Dd_T q2_e, const Dd_T q1_e,const U
                   0.);
       dxc2_dy *= S;
       
-      J = ((kd[k==l]-dxc1_dy)-(x[k]-xc1)*(dxc2_dy-dxc1_dy)/(xc2-xc1))/(xc2-xc1);
+      J = dc_dx_OB_T_SCS(patch,x[k],xc1,xc2,kd[k==l],dxc1_dy,dxc2_dy);
     break;
     case dc_dz:
       l  = 2;
@@ -5906,7 +6013,7 @@ double JT_OJ_T_SCS(Patch_T *const patch,const Dd_T q2_e, const Dd_T q1_e,const U
                   0.);
       dxc2_dz *= S;
       
-      J = ((kd[k==l]-dxc1_dz)-(x[k]-xc1)*(dxc2_dz-dxc1_dz)/(xc2-xc1))/(xc2-xc1);
+      J = dc_dx_OB_T_SCS(patch,x[k],xc1,xc2,kd[k==l],dxc1_dz,dxc2_dz);
     break;
     default:
       Error0("No such an enum!\n");

@@ -235,6 +235,10 @@ typedef struct PATCH_T
     double R2;/* big radius of outermost patches. Note: it's always positive for all sides.*/
     double xc1;/* const xc value for those patches that have cube (small)*/
     double xc2;/* const xc value for those patches that have cube (big)*/
+    int log_c_map;/* OB_T_SCS only: 1 => log(x_c) is linear in X[2] (log radial map),
+                  // 2 => exponential stretch with c_map_alpha,
+                  // 0 => x_c is linear in X[2] (default). */
+    double c_map_alpha;/* stretch parameter for log_c_map == 2 */
    }CubedSphericalCoord[1];
   }CoordSysInfo[1];
   Collocation_T collocation[3];/* type of collocation in each direction */
@@ -336,6 +340,8 @@ double x_coord(const Uint i,const Patch_T *const patch);
 double y_coord(const Uint i,const Patch_T *const patch);
 double z_coord(const Uint i,const Patch_T *const patch);
 double X_coord(const Uint i,const Patch_T *const patch);
+double xc_of_X2_OB_T_SCS(const Patch_T *const patch,const double x1,const double x2,const double X2);
+double X2_of_xc_OB_T_SCS(const Patch_T *const patch,const double x1,const double x2,const double xc);
 double Y_coord(const Uint i,const Patch_T *const patch);
 double Z_coord(const Uint i,const Patch_T *const patch);
 double dq2_dq1(Patch_T *const patch,const Dd_T q2_e, const Dd_T q1_e,const Uint p);
