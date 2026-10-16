@@ -1067,8 +1067,20 @@ void star_populate_psi_alphaPsi_matter_fields_TOV
   const double O_y   = Getd("omega_y");
   const double O_z   = Getd("omega_z");
   const double Omega = sysGetd("angular_velocity");
+  const double x_CM  = sysGetd("x_CM");
   const double y_CM  = sysGetd("y_CM");
   const char *NS_region = Ftype("NS");
+  double Vr = 0., D = 0.;
+  
+  sprintf(phys->par,"%s_%s",phys->ssys,"infall_velocity");
+  if (PgetdEZ(phys->par) != DBL_MAX) Vr = PgetdEZ(phys->par);
+  sprintf(phys->par,"%s_%s",phys->ssys,"separation");
+  if (PgetdEZ(phys->par) != DBL_MAX) D = PgetdEZ(phys->par);
+  
+  const double a     = (D > 0.) ? Vr/D : 0.;
+  const double NS_V0 = -Omega*(NSy-y_CM) + a*(NSx-x_CM);
+  const double NS_V1 =  Omega*(NSx-x_CM) + a*(NSy-y_CM);
+  const double NS_V2 =  a*(NSz-sysGetd("z_CM"));
   
   /* find TOV solution */
   TOV_T *tov = TOV_init();
@@ -1137,7 +1149,7 @@ void star_populate_psi_alphaPsi_matter_fields_TOV
         rho0[ijk] = eos->rest_mass_density(eos);
 
         /* phi Newtonian approximation */
-        phi[ijk] = -Omega*(NSy-y_CM)*x;
+        phi[ijk] = NS_V0*x + NS_V1*y + NS_V2*z;
 
         /* spin part */
         w_U0[ijk] = O_y*z-O_z*y;
