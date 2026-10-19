@@ -105,6 +105,14 @@ DFLAGS += -DCCS_READER_OPTIMIZE
 SPECIAL_INCS += -I/usr/include/suitesparse
 SPECIAL_LIBS += -lumfpack
 
+### LAPACK (dgetrf/dgetrs/dgecon) for the dense per-patch solve (IMPORTANT)
+SPECIAL_LIBS += -lopenblas
+#SPECIAL_LIBS += -llapack -lblas
+#SPECIAL_LIBS += -lmkl_intel_lp64 -lmkl_gnu_thread -lmkl_core -lgomp -lpthread
+### NOTE: do NOT link ILP64 builds (e.g. libopenblas64, libopenblaso64,
+### mkl_intel_ilp64); they expect 64-bit integers and give wrong results.
+### for OpenBLAS prefer its OpenMP (libopenblaso) build
+
 ### special includes for gsl
 #SPECIAL_LIBS += -lgsl -lgslcblas
 

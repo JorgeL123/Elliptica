@@ -80,6 +80,7 @@ Matrix_T *get_j_matrix(const Patch_T *const patch,const char *type);
 fdInterp_dfs_T *get_dInterp_df(const Patch_T *const patch,const SubFace_T *const sf,const char *const dir);
 static void preparing_ingredients(Solve_Equations_T *const SolveEqs);
 static void make_map_and_inv(Patch_T *const patch);
+static void check_jacobian_stencil(Patch_T *const patch,char *const msg);
 static void calculate_residual(Grid_T *const grid);
 static void calculate_residual_single_patch(Patch_T *const patch);
 static void set_solving_man_settings_Frms_i(Grid_T *const grid);

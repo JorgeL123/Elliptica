@@ -270,13 +270,13 @@ t0_e + t1_e + t2_e;
       for (ijk = 0; ijk < nn; ++ijk)
         d_df[ijk] = dInterp_df(patch,X,ijk,0);
 
-      DDM_SCHUR_JACOBIAN_EQ_Bpart_OPEN
+      DDM_SCHUR_JACOBIAN_EQ_Bpart_FULL_OPEN
       	 schur_B[schur_ijk][schur_lmn] += Att_Con_Num*d_df[lmn];
-      DDM_SCHUR_JACOBIAN_EQ_Bpart_CLOSE
+      DDM_SCHUR_JACOBIAN_EQ_Bpart_FULL_CLOSE
 
-      DDM_SCHUR_JACOBIAN_EQ_Epart_OPEN
+      DDM_SCHUR_JACOBIAN_EQ_Epart_FULL_OPEN
         schur_Et[schur_lmn][schur_ijk] += Att_Con_Num*d_df[lmn];
-      DDM_SCHUR_JACOBIAN_EQ_Epart_CLOSE
+      DDM_SCHUR_JACOBIAN_EQ_Epart_FULL_CLOSE
       free(d_df);
     }
   }

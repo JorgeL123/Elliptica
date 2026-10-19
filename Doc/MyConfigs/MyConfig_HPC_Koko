@@ -103,6 +103,14 @@ SPECIAL_INCS += -I/home/Softwares/Packages/Elliptica_packages/SuiteSparse-5.7.2/
 SPECIAL_LIBS += -L/home/Softwares/Packages/Elliptica_packages/SuiteSparse-5.7.2/lib -lumfpack 
 SPECIAL_LIBS += -Wl,-rpath,/home/Softwares/Packages/Elliptica_packages/SuiteSparse-5.7.2/lib
 
+### LAPACK (dgetrf/dgetrs/dgecon) for the dense per-patch solve (IMPORTANT)
+SPECIAL_LIBS += -lopenblas
+#SPECIAL_LIBS += -llapack -lblas
+#SPECIAL_LIBS += -lmkl_intel_lp64 -lmkl_gnu_thread -lmkl_core -lgomp -lpthread
+### NOTE: do NOT link ILP64 builds (e.g. libopenblas64, libopenblaso64,
+### mkl_intel_ilp64); they expect 64-bit integers and give wrong results.
+### for OpenBLAS prefer its OpenMP (libopenblaso) build
+
 ### gsl
 #SPECIAL_LIBS += -lgsl -lgslcblas
 

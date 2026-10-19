@@ -225,14 +225,14 @@ Epart_ = t0_e+t1_e+t2_e;
 `        d_df[ijk] = dInterp_df(patch,X,ijk,0);`
 ``
        ## B part:
-`      DDM_SCHUR_JACOBIAN_EQ_Bpart_OPEN`
+`      DDM_SCHUR_JACOBIAN_EQ_Bpart_FULL_OPEN`
 `      	 schur_B[schur_ijk][schur_lmn] += Att_Con_Num*d_df[lmn];` # for eq: phi = 0
-`      DDM_SCHUR_JACOBIAN_EQ_Bpart_CLOSE`
+`      DDM_SCHUR_JACOBIAN_EQ_Bpart_FULL_CLOSE`
 ``
        ## E part:
-`      DDM_SCHUR_JACOBIAN_EQ_Epart_OPEN`
+`      DDM_SCHUR_JACOBIAN_EQ_Epart_FULL_OPEN`
 `        schur_Et[schur_lmn][schur_ijk] += Att_Con_Num*d_df[lmn];`
-`      DDM_SCHUR_JACOBIAN_EQ_Epart_CLOSE`
+`      DDM_SCHUR_JACOBIAN_EQ_Epart_FULL_CLOSE`
 `      free(d_df);`
 `    }`
 `  }`
