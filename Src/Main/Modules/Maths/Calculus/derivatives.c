@@ -655,6 +655,27 @@ static double *spectral_derivative_1stOrder(Field_T *const f,const Dd_T dir_e)
   return der;
 }
 
+/* interpolate derivative of Chebyshev series at x with Clenshaw summation
+// ->return value: df(x)/dx
+*/
+static double clenshaw_Chebyshev_derivative(const double *C, const Uint nx,
+                                            const Uint stride, const double x,
+                                            const double highest_mode_weight)
+{
+  if (nx == 1)
+    return 0;
+  double bk2 = 0.0;
+  double bk1 = highest_mode_weight * (nx - 1)*C[stride*(nx - 1)];
+  for (Uint k = nx - 2; k > 0; --k)
+  {
+    double bk = 2.0*k*C[stride*k] + 2.0*x*bk1 - bk2;
+    bk2 = bk1;
+    bk1 = bk;
+  }
+
+  return bk1;
+}
+
 /* taking derivative for f(N) = sum_{0}^{n-1}a_n*T_n(N), in the specified
 // patch.
 // note: N is in [-1,1].
@@ -668,7 +689,6 @@ static double *derivative_ChebyshevExtrema_Tn_1stOrder(Field_T *const f,const Dd
   Patch_T *const patch = f->patch;
   const Uint *const n = patch->n;
   const Uint nn = total_nodes_patch(patch);
-  const Uint B = n[dir]-1;
   double *der = alloc_double(nn);
   double *x = make_1Dcollocation_ChebExtrema(n[dir]);
   const double *const coeffs = f->v2;
@@ -676,59 +696,44 @@ static double *derivative_ChebyshevExtrema_Tn_1stOrder(Field_T *const f,const Dd
 
   if (dir == 0)
   {
+    Uint stride = i_j_k_to_ijk(n,1,0,0) - i_j_k_to_ijk(n,0,0,0);
     /* OpenMP_2d_Pragma(omp parallel for) */
     for (l = 0; l < nn; ++l)
     {
       Uint i,j,k;
-      Uint c;
 
       ijk_to_i_j_k(l,n,&i,&j,&k);
 
-      for (c = 1; c < B; ++c)
-      {
-        Uint C = i_j_k_to_ijk(n,c,j,k);//coeff_ind(i,j,k,c,n,dir);
-        der[l] += c*coeffs[C]*Cheb_Un((int)c-1,x[i]);
-      }
-      der[l] *= 2;
-      der[l] += B*coeffs[i_j_k_to_ijk(n,B,j,k)]*Cheb_Un((int)B-1,x[i]);
+      der[l] = clenshaw_Chebyshev_derivative(&coeffs[i_j_k_to_ijk(n,0,j,k)], n[0],
+                                             stride, x[i], 1.0);
     }
   }
   else if (dir == 1)
   {
+    Uint stride = i_j_k_to_ijk(n,0,1,0) - i_j_k_to_ijk(n,0,0,0);
     /* OpenMP_2d_Pragma(omp parallel for) */
     for (l = 0; l < nn; ++l)
     {
       Uint i,j,k;
-      Uint c;
 
       ijk_to_i_j_k(l,n,&i,&j,&k);
 
-      for (c = 1; c < B; ++c)
-      {
-        Uint C = i_j_k_to_ijk(n,i,c,k);//coeff_ind(i,j,k,c,n,dir);
-        der[l] += c*coeffs[C]*Cheb_Un((int)c-1,x[j]);
-      }
-      der[l] *= 2;
-      der[l] += B*coeffs[i_j_k_to_ijk(n,i,B,k)]*Cheb_Un((int)B-1,x[j]);
+      der[l] = clenshaw_Chebyshev_derivative(&coeffs[i_j_k_to_ijk(n,i,0,k)], n[1],
+                                             stride, x[j], 1.0);
     }
   }
   else /* (dir == 2) */
   {
+    Uint stride = i_j_k_to_ijk(n,0,0,1) - i_j_k_to_ijk(n,0,0,0);
     /* OpenMP_2d_Pragma(omp parallel for) */
     for (l = 0; l < nn; ++l)
     {
       Uint i,j,k;
-      Uint c;
 
       ijk_to_i_j_k(l,n,&i,&j,&k);
 
-      for (c = 1; c < B; ++c)
-      {
-        Uint C = i_j_k_to_ijk(n,i,j,c);//coeff_ind(i,j,k,c,n,dir);
-        der[l] += c*coeffs[C]*Cheb_Un((int)c-1,x[k]);
-      }
-      der[l] *= 2;
-      der[l] += B*coeffs[i_j_k_to_ijk(n,i,j,B)]*Cheb_Un((int)B-1,x[k]);
+      der[l] = clenshaw_Chebyshev_derivative(&coeffs[i_j_k_to_ijk(n,i,j,0)], n[2],
+                                             stride, x[k], 1.0);
     }
   }
   free(x);
@@ -749,7 +754,6 @@ static double *derivative_ChebyshevNodes_Tn_1stOrder(Field_T *const f,const Dd_T
   Patch_T *const patch = f->patch;
   const Uint *const n = patch->n;
   const Uint nn = patch->nn;
-  const Uint B = n[dir];
   double *der = alloc_double(nn);
   double *x = make_1Dcollocation_ChebNodes(n[dir]);
   const double *const coeffs = f->v2;
@@ -757,56 +761,44 @@ static double *derivative_ChebyshevNodes_Tn_1stOrder(Field_T *const f,const Dd_T
 
   if (dir == 0)
   {
+    Uint stride = i_j_k_to_ijk(n,1,0,0) - i_j_k_to_ijk(n,0,0,0);
     /* OpenMP_2d_Pragma(omp parallel for) */
     for (l = 0; l < nn; ++l)
     {
       Uint i,j,k;
-      Uint c;
 
       ijk_to_i_j_k(l,n,&i,&j,&k);
 
-      for (c = 1; c < B; ++c)
-      {
-        Uint C = i_j_k_to_ijk(n,c,j,k);//coeff_ind(i,j,k,c,n,dir);
-        der[l] += c*coeffs[C]*Cheb_Un((int)c-1,x[i]);
-      }
-      der[l] *= 2;
+      der[l] = clenshaw_Chebyshev_derivative(&coeffs[i_j_k_to_ijk(n,0,j,k)], n[0],
+                                             stride, x[i], 2.0);
     }
   }
   else if (dir == 1)
   {
+    Uint stride = i_j_k_to_ijk(n,0,1,0) - i_j_k_to_ijk(n,0,0,0);
     /* OpenMP_2d_Pragma(omp parallel for) */
     for (l = 0; l < nn; ++l)
     {
       Uint i,j,k;
-      Uint c;
 
       ijk_to_i_j_k(l,n,&i,&j,&k);
 
-      for (c = 1; c < B; ++c)
-      {
-        Uint C = i_j_k_to_ijk(n,i,c,k);//coeff_ind(i,j,k,c,n,dir);
-        der[l] += c*coeffs[C]*Cheb_Un((int)c-1,x[j]);
-      }
-      der[l] *= 2;
+      der[l] = clenshaw_Chebyshev_derivative(&coeffs[i_j_k_to_ijk(n,i,0,k)], n[1],
+                                             stride, x[j], 2.0);
     }
   }
   else /* (dir == 2) */
   {
+    Uint stride = i_j_k_to_ijk(n,0,0,1) - i_j_k_to_ijk(n,0,0,0);
     /* OpenMP_2d_Pragma(omp parallel for) */
     for (l = 0; l < nn; ++l)
     {
       Uint i,j,k;
-      Uint c;
 
       ijk_to_i_j_k(l,n,&i,&j,&k);
 
-      for (c = 1; c < B; ++c)
-      {
-        Uint C = i_j_k_to_ijk(n,i,j,c);//coeff_ind(i,j,k,c,n,dir);
-        der[l] += c*coeffs[C]*Cheb_Un((int)c-1,x[k]);
-      }
-      der[l] *= 2;
+      der[l] = clenshaw_Chebyshev_derivative(&coeffs[i_j_k_to_ijk(n,i,j,0)], n[2],
+                                             stride, x[k], 2.0);
     }
   }
   free(x);

@@ -31,6 +31,9 @@ static Dd_T str2enum_direction(const char *const str);
 static double *take_spectral_derivative(Field_T *const f,const Dd_T  *const dir_e,const Uint Ndir);
 static double *spectral_derivative_1stOrder(Field_T *const f,const Dd_T dir_e);
 static double *spectral_derivative_2ndOrder(Field_T *const f,const Dd_T dir_e);
+static double clenshaw_Chebyshev_derivative(const double *C, const Uint nx,
+                                            const Uint stride, const double x,
+                                            const double highest_mode_weight);
 static double *derivative_ChebyshevExtrema_Tn_1stOrder(Field_T *const f,const Dd_T dir);
 static double *derivative_ChebyshevNodes_Tn_1stOrder(Field_T *const f,const Dd_T dir);
 static double *derivative_ChebyshevExtrema_Tn_2ndOrder(Field_T *const f,const Dd_T dir);
