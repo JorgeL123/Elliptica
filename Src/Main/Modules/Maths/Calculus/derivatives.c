@@ -664,6 +664,10 @@ static double clenshaw_Chebyshev_derivative(const double *C, const Uint nx,
 {
   if (nx == 1)
     return 0;
+  // FIXME: Domain check is possibly unnecessary?
+  if (!(x >= -1.0 && x <= 1.0))
+    return NAN;
+
   double bk2 = 0.0;
   double bk1 = highest_mode_weight*(nx - 1)*C[stride*(nx - 1)];
   for (Uint k = nx - 2; k > 0; --k)
@@ -685,6 +689,9 @@ static double clenshaw_Chebyshev_derivative_2ndOrder(const double *C, const Uint
 {
   if (nx <= 2)
     return 0;
+  // FIXME: Domain check is possibly unnecessary?
+  if (!(x >= -1.0 && x <= 1.0))
+    return NAN;
   
   double bk2 = 0.0;
   double bk1 = highest_mode_weight*(nx - 1)*C[stride*(nx - 1)];

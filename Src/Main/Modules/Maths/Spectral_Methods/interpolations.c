@@ -426,6 +426,11 @@ static double clenshaw_Chebyshev_sum(const double *C, const Uint nx, const Uint 
   if (nx == 1)
     return C[0];
 
+  // This domain check is needed to preserve the behavior of the old Tx, Ty, Tz calls;
+  // the code expects it to return NaN if it's out of the domain.
+  if (!(x >= -1.0 && x <= 1.0))
+    return NAN;
+
   double bk2 = 0.0;
   double bk1 = C[stride*(nx-1)];
   for (Uint k = nx-2; k > 0; --k)
@@ -444,6 +449,10 @@ static double clenshaw_Chebyshev_sum_2d(const double *C, const Uint nx,
                                        const Uint stride_x, const double X, const Uint ny,
                                        const Uint stride_y, const double Y)
 {
+  // This domain check is needed to preserve the behavior of the old Tx, Ty, Tz calls;
+  // the code expects it to return NaN if it's out of the domain.
+  if (nx > 1 && !(X >= -1.0 && X <= 1.0))
+    return NAN;
   double bk2 = 0.0;
   double bk1 = clenshaw_Chebyshev_sum(&C[stride_x*(nx-1)], ny, stride_y, Y);
   if (nx == 1)
@@ -599,6 +608,10 @@ static double interpolation_Chebyshev_Tn_XYZ(Interpolation_T *const interp_s)
   make_coeffs_3d(field);
   C = field->v2;
   
+  // This domain check is needed to preserve the behavior of the old Tx, Ty, Tz calls;
+  // the code expects it to return NaN if it's out of the domain.
+  if (n[0] > 1 && !(X >= -1.0 && X <= 1.0))
+    return NAN;
   const Uint stride_y = i_j_k_to_ijk(n,0,1,0) - i_j_k_to_ijk(n,0,0,0);
   const Uint stride_z = i_j_k_to_ijk(n,0,0,1) - i_j_k_to_ijk(n,0,0,0);
   double bk2 = 0.0;
