@@ -2056,6 +2056,7 @@ void free_patch_SolMan_jacobian(Patch_T *const patch)
   {
     Free(SolMan->jacobian_workspace->dT_dx[i]);
     Free(SolMan->jacobian_workspace->d2T_dx2[i]);
+    Free(SolMan->jacobian_workspace->D1[i]);
   }
 }
 
@@ -2658,6 +2659,27 @@ void set_Solving_Man_jacobian_workspace(Patch_T *const patch)
   {
     solving_man->jacobian_workspace->dT_dx[i]   = dT_dx[i];
     solving_man->jacobian_workspace->d2T_dx2[i] = d2T_dx2[i];
+  }
+  
+  /* tabulate the trigonometric part of Jd2f_dudx_opt; it only depends on
+  // the axis and the 1D indices (qi,qj); dT_dx[X] only on the index along
+  // X, so any node with index qi along X can be used. */
+  for (i = 0; i < 3; ++i)
+  {
+    const Uint N = patch->n[i];
+    double *const D1 = alloc_double(N*N);
+    
+    for (Uint qi = 0; qi < N; ++qi)
+    {
+      const Uint ijk = i_j_k_to_ijk(patch->n,i == 0 ? qi : 0,
+                                             i == 1 ? qi : 0,
+                                             i == 2 ? qi : 0);
+      for (Uint qj = 0; qj < N; ++qj)
+        D1[qi*N+qj] = Jnorm_opt(i)*
+                      Jd2f_dudX_opt(Jtheta_opt(qi,i),Jtheta_opt(qj,i),
+                                    (JW->nm1[i]),patch,qj,i,ijk);
+    }
+    solving_man->jacobian_workspace->D1[i] = D1;
   }
   
   /* fully set */

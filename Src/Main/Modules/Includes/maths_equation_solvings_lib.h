@@ -112,6 +112,29 @@
 
 #define DDM_SCHUR_JACOBIAN_LOOP_CLOSE  }
 
+/* loop over the nodes lmn that can couple to node ijk in a Jacobian row.
+// spectral derivatives and their products only couple nodes that share
+// one coordinate plane with ijk (i==l or j==m or k==n), all other entries
+// are exactly zero (see JKD_zero in d2f_dxdu/d3f_dxdydu_*_Jacobian_*), so
+// only these ~3n^2 of n^3 nodes are visited. with
+// "solve_ddm_schur_jacobian_loop = full" all nodes are visited.
+// NOTE: terms that couple ijk to all nodes (e.g. an interpolation) must
+// use the *_FULL_* macros below. */
+#define DDM_SCHUR_JACOBIAN_STENCIL_LOOP_OPEN(ijk,lmn) \
+  _schur_ns = ddm_schur_jacobian_stencil(patch,(ijk),_schur_full,_schur_stencil);\
+  for (_schur_s = 0; _schur_s < _schur_ns; ++_schur_s)\
+  {\
+    (lmn) = _schur_stencil[_schur_s];
+
+/* variables needed by the stencil loop */
+#define DDM_SCHUR_JACOBIAN_STENCIL_DECLARE \
+  const Uint *const _schur_map = _schur_S->map;\
+  const int _schur_full = ddm_schur_jacobian_full_loop();\
+  Uint _schur_stencil[patch->nn];\
+  Uint _schur_ns = 0,_schur_s = 0;\
+  (void)_schur_map;(void)_schur_full;(void)_schur_stencil;\
+  (void)_schur_ns;(void)_schur_s;
+
 
 /* macros for jacobian of equations */
 #define DDM_SCHUR_JACOBIAN_EQ_DECLARE \
@@ -124,15 +147,28 @@
   const Uint _schur_Nj = _schur_S->NS;/* number of inner mesh+outer-boundary + inner-boundary nodes */\
   const Uint _schur_K0 = _schur_S->NS;/* number of inner mesh+outer-boundary + inner-boundary nodes */\
   const Uint _schur_Nk = patch->nn;/* total number of nodes */\
-  Uint schur_ijk,schur_lmn,_schur_k;
+  Uint schur_ijk,schur_lmn,_schur_k;\
+  DDM_SCHUR_JACOBIAN_STENCIL_DECLARE
 
 
 /* macro for schur_B part of jacobian */
 #define DDM_SCHUR_JACOBIAN_EQ_Bpart_OPEN \
   DDM_SCHUR_JACOBIAN_LOOP_OPEN(schur_ijk,0,_schur_Ni,ijk)\
     Workspace_ijk_Jacobian(ijk)\
+    DDM_SCHUR_JACOBIAN_STENCIL_LOOP_OPEN(ijk,lmn)\
+      schur_lmn = _schur_map[lmn];\
+      if (schur_lmn >= _schur_Nj) continue;/* interface node => E part */\
+      Workspace_lmn_Jacobian(lmn)
+
+/* same as above but visiting all nodes (original loop) */
+#define DDM_SCHUR_JACOBIAN_EQ_Bpart_FULL_OPEN \
+  DDM_SCHUR_JACOBIAN_LOOP_OPEN(schur_ijk,0,_schur_Ni,ijk)\
+    Workspace_ijk_Jacobian(ijk)\
     DDM_SCHUR_JACOBIAN_LOOP_OPEN(schur_lmn,0,_schur_Nj,lmn)\
       Workspace_lmn_Jacobian(lmn)
+
+#define DDM_SCHUR_JACOBIAN_EQ_Bpart_FULL_CLOSE \
+  DDM_SCHUR_JACOBIAN_EQ_Bpart_CLOSE
 
 #define DDM_SCHUR_JACOBIAN_EQ_Bpart_CLOSE \
   DDM_SCHUR_JACOBIAN_LOOP_CLOSE\
@@ -145,7 +181,9 @@
     schur_Et = _schur_S->E_Trans->reg->A;\
     DDM_SCHUR_JACOBIAN_LOOP_OPEN(schur_ijk,0,_schur_Ni,ijk)\
       Workspace_ijk_Jacobian(ijk)\
-      DDM_SCHUR_JACOBIAN_LOOP_OPEN(_schur_k,_schur_K0,_schur_Nk,lmn)\
+      DDM_SCHUR_JACOBIAN_STENCIL_LOOP_OPEN(ijk,lmn)\
+        _schur_k = _schur_map[lmn];\
+        if (_schur_k < _schur_K0) continue;/* subdomain node => B part */\
         schur_lmn = _schur_k - _schur_K0;\
         Workspace_lmn_Jacobian(lmn)
 
@@ -154,6 +192,20 @@
     DDM_SCHUR_JACOBIAN_LOOP_CLOSE\
       DDM_SCHUR_JACOBIAN_LOOP_CLOSE\
   }/* end of if (_schur_S->NI) */
+
+/* same as above but visiting all nodes (original loop) */
+#define DDM_SCHUR_JACOBIAN_EQ_Epart_FULL_OPEN \
+  if (_schur_S->NI)/* if there is any interface points then E is needed */\
+  {\
+    schur_Et = _schur_S->E_Trans->reg->A;\
+    DDM_SCHUR_JACOBIAN_LOOP_OPEN(schur_ijk,0,_schur_Ni,ijk)\
+      Workspace_ijk_Jacobian(ijk)\
+      DDM_SCHUR_JACOBIAN_LOOP_OPEN(_schur_k,_schur_K0,_schur_Nk,lmn)\
+        schur_lmn = _schur_k - _schur_K0;\
+        Workspace_lmn_Jacobian(lmn)
+
+#define DDM_SCHUR_JACOBIAN_EQ_Epart_FULL_CLOSE \
+  DDM_SCHUR_JACOBIAN_EQ_Epart_CLOSE
 
 
 /* macros for jacobian of boundary condition equations */
@@ -168,15 +220,28 @@
   const Uint _schur_Nj = _schur_S->NS;/* number of inner mesh+outer-boundary + inner-boundary nodes */\
   const Uint _schur_K0 = _schur_S->NS;/* number of inner mesh+outer-boundary + inner-boundary nodes */\
   const Uint _schur_Nk = patch->nn;/* total number of nodes */\
-  Uint schur_ijk,schur_lmn,_schur_k;
+  Uint schur_ijk,schur_lmn,_schur_k;\
+  DDM_SCHUR_JACOBIAN_STENCIL_DECLARE
 
 
 /* macro for schur_B part of outer boundary jacobian */
 #define DDM_SCHUR_JACOBIAN_BC_Bpart_OPEN \
   DDM_SCHUR_JACOBIAN_LOOP_OPEN(schur_ijk,_schur_I0,_schur_Ni,ijk)\
     Workspace_ijk_Jacobian(ijk)\
+    DDM_SCHUR_JACOBIAN_STENCIL_LOOP_OPEN(ijk,lmn)\
+      schur_lmn = _schur_map[lmn];\
+      if (schur_lmn >= _schur_Nj) continue;/* interface node => E part */\
+      Workspace_lmn_Jacobian(lmn)
+
+/* same as above but visiting all nodes (original loop) */
+#define DDM_SCHUR_JACOBIAN_BC_Bpart_FULL_OPEN \
+  DDM_SCHUR_JACOBIAN_LOOP_OPEN(schur_ijk,_schur_I0,_schur_Ni,ijk)\
+    Workspace_ijk_Jacobian(ijk)\
     DDM_SCHUR_JACOBIAN_LOOP_OPEN(schur_lmn,0,_schur_Nj,lmn)\
       Workspace_lmn_Jacobian(lmn)
+
+#define DDM_SCHUR_JACOBIAN_BC_Bpart_FULL_CLOSE \
+  DDM_SCHUR_JACOBIAN_BC_Bpart_CLOSE
 
 
 #define DDM_SCHUR_JACOBIAN_BC_Bpart_CLOSE \
@@ -190,7 +255,9 @@
     schur_Et = _schur_S->E_Trans->reg->A;\
     DDM_SCHUR_JACOBIAN_LOOP_OPEN(schur_ijk,_schur_I0,_schur_Ni,ijk)\
       Workspace_ijk_Jacobian(ijk)\
-      DDM_SCHUR_JACOBIAN_LOOP_OPEN(_schur_k,_schur_K0,_schur_Nk,lmn)\
+      DDM_SCHUR_JACOBIAN_STENCIL_LOOP_OPEN(ijk,lmn)\
+        _schur_k = _schur_map[lmn];\
+        if (_schur_k < _schur_K0) continue;/* subdomain node => B part */\
         schur_lmn = _schur_k - _schur_K0;\
         Workspace_lmn_Jacobian(lmn)
 
@@ -198,6 +265,20 @@
     DDM_SCHUR_JACOBIAN_LOOP_CLOSE\
       DDM_SCHUR_JACOBIAN_LOOP_CLOSE\
   }/* end of if (_schur_S->NI) */
+
+/* same as above but visiting all nodes (original loop) */
+#define DDM_SCHUR_JACOBIAN_BC_Epart_FULL_OPEN \
+  if (_schur_S->NI)/* if there is any interface points then E is needed */\
+  {\
+    schur_Et = _schur_S->E_Trans->reg->A;\
+    DDM_SCHUR_JACOBIAN_LOOP_OPEN(schur_ijk,_schur_I0,_schur_Ni,ijk)\
+      Workspace_ijk_Jacobian(ijk)\
+      DDM_SCHUR_JACOBIAN_LOOP_OPEN(_schur_k,_schur_K0,_schur_Nk,lmn)\
+        schur_lmn = _schur_k - _schur_K0;\
+        Workspace_lmn_Jacobian(lmn)
+
+#define DDM_SCHUR_JACOBIAN_BC_Epart_FULL_CLOSE \
+  DDM_SCHUR_JACOBIAN_BC_Epart_CLOSE
 
 
 /* macro for equation */
@@ -411,6 +492,9 @@ typedef struct SOLVING_MAN_T
   {
     double *dT_dx[3];/* save dCheb_Tn(n[?],x)/dx|ijk, 
                      // where n[?] = patch->n[?]-1. */
+    double *D1[3];/* 1D Chebyshev derivative factors of Jd2f_dudx_opt:
+                  // D1[X][qi*n[X]+qj] = norm[X]*Jd2f_dudX_opt(qi,qj),
+                  // computed once instead of with sin/cos at every use. */
     double *d2T_dx2[3];/* save d2Cheb_Tn(n[?],x)/dx2|ijk, 
                        // where n[?] = patch->n[?]-1. */
     /* constant factors: */
@@ -629,6 +713,9 @@ double
                                         const Uint ijk,const Uint lmn);
 
 void set_Solving_Man_jacobian_workspace(Patch_T *const patch);
+Uint ddm_schur_jacobian_stencil(const Patch_T *const patch,const Uint ijk,
+                                const int full,Uint *const stencil);
+int ddm_schur_jacobian_full_loop(void);
 
 double
   d2f_dxdu_optimized_spectral_Jacobian_analytic(Patch_T *const patch,

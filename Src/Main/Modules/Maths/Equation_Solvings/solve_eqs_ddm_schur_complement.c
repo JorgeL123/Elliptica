@@ -492,7 +492,23 @@ static char *solve_Sy_g_prime(Matrix_T *const S,double *const g_prime,Grid_T *co
   umfpack->refinement = 
     grid->patch[0]->solving_man->settings->umfpack_refine;
   
-  if (S->ccs_f)
+  /* by default the LU of S is kept and reused in the next solve of the
+  // same field (next outer iteration) as GMRES preconditioner*/
+  if (S->ccs_l_f && !PcmpsEZ("solve_ddm_schur_S_reuse","no"))
+  {
+    const Solving_Man_T *const SM = grid->patch[0]->solving_man;
+    double tol = PgetdEZ("solve_ddm_schur_S_reuse_tolerance");
+    double max_iter = PgetdEZ("solve_ddm_schur_S_reuse_max_iter");
+    
+    if (tol == DBL_MAX)
+      tol = 1E-12;
+    if (max_iter == DBL_MAX)
+      max_iter = 15;
+    
+    direct_solver_umfpack_dl_reuse(umfpack,SM->field_name[SM->cf],
+                                   tol,(Uint)max_iter);
+  }
+  else if (S->ccs_f)
     direct_solver_umfpack_di(umfpack);
   
   else if (S->ccs_l_f)
@@ -1374,31 +1390,47 @@ static void fill_C_F_collocation(Patch_T *const patch, Pair_T *const pair)
 
 /* making E prime and f prime. refer to the note on the very top
 // NOTE: if you wanna switch to long version put LONG_VERSION to 1.
+// the solver is chosen by "solve_ddm_schur_patch_solver":
+//   lapack_dense (default): dense LU of B (dgetrf) and one solve for all
+//                           b's (dgetrs), i.e. BLAS-3 instead of one sparse
+//                           triangular solve per b. B is already dense.
+//   umfpack               : sparse LU of B and one UMFPACK solve per b.
 // ->return value: some info */
 static char *making_E_prime_and_f_prime(Patch_T *const patch)
 {
   const double time1 = get_time_sec();
   const int LONG_VERSION = patch->solving_man->settings->umfpack_size;
+  const int USE_UMFPACK  = PcmpsEZ("solve_ddm_schur_patch_solver","umfpack");
   DDM_Schur_Complement_T *const S = patch->solving_man->method->SchurC;
   double **E_Trans = 0;
   Matrix_T *a  = 0;
   double *const f = S->f;
   double **xs = 0, **bs = 0;
-  Umfpack_T *umfpack = init_umfpack();
+  Umfpack_T *umfpack = 0;
+  Lapack_Dense_T *lapack = 0;
+  const char *solver_description = 0;
   Uint ns = 1;
   Uint i;
   char *msg = calloc(MSG_SIZE2,1);
   IsNull(msg);
   
-  /* normal version (= 0), otherwise long */
-  if (LONG_VERSION)
-    a = cast_matrix_ccs_long(S->B);
+  if (USE_UMFPACK)
+  {
+    /* normal version (= 0), otherwise long */
+    if (LONG_VERSION)
+      a = cast_matrix_ccs_long(S->B);
+    else
+      a = cast_matrix_ccs(S->B);
+    
+    /* free unwanted memories */
+    free_matrix(S->B);
+    S->B = 0;/* making sure B refers to null */
+  }
   else
-    a = cast_matrix_ccs(S->B);
-  
-  /* free unwanted memories */
-  free_matrix(S->B);
-  S->B = 0;/* making sure B refers to null */
+  {
+    a = S->B;/* dense, freed below */
+    S->B = 0;/* making sure B refers to null */
+  }
   
   /* if there is any interface points */
   ns += (Uint)S->E_Trans->row;
@@ -1420,16 +1452,34 @@ static char *making_E_prime_and_f_prime(Patch_T *const patch)
   xs[ns-1] = calloc(S->NS,sizeof(*xs[ns-1]));
   IsNull(xs[ns-1]);
   
-  umfpack->a = a;
-  umfpack->bs = bs;
-  umfpack->xs = xs;
-  umfpack->ns = ns;
-  umfpack->refinement = patch->solving_man->settings->umfpack_refine;
-  
-  if (LONG_VERSION)
-    direct_solver_series_umfpack_dl(umfpack);
+  if (USE_UMFPACK)
+  {
+    umfpack = init_umfpack();
+    umfpack->a = a;
+    umfpack->bs = bs;
+    umfpack->xs = xs;
+    umfpack->ns = ns;
+    umfpack->refinement = patch->solving_man->settings->umfpack_refine;
+    
+    if (LONG_VERSION)
+      direct_solver_series_umfpack_dl(umfpack);
+    else
+      direct_solver_series_umfpack_di(umfpack);
+    
+    solver_description = umfpack->description;
+  }
   else
-    direct_solver_series_umfpack_di(umfpack);
+  {
+    lapack = init_lapack_dense();
+    lapack->a  = a;
+    lapack->bs = bs;
+    lapack->xs = xs;
+    lapack->ns = ns;
+    
+    direct_solver_series_lapack_dense(lapack);
+    
+    solver_description = lapack->description;
+  }
   
   S->f_prime = xs[ns-1];
   /* cast 2d array to row major order */
@@ -1454,14 +1504,16 @@ static char *making_E_prime_and_f_prime(Patch_T *const patch)
   sprintf(msg,"{ Solve BE' = E and Bf' = f ...\n"
               "%s"
               "} Solve BE' = E and Bf' = f --> Done. ( Wall-Clock = %.0fs )\n",
-              umfpack->description,
+              solver_description,
               get_time_sec()-time1);
               
   free_matrix(S->E_Trans);
   free_matrix(a);
   free(S->f);
   free(bs);
-  free_umfpack(umfpack);
+  if (umfpack)
+    free_umfpack(umfpack);
+  free_lapack_dense(lapack);
   return msg;
 }
 
@@ -1487,10 +1539,132 @@ static char *making_B_and_E(Patch_T *const patch)
   jacobian_field_eq(patch,S->method->SchurC);
   jacobian_bc_eq(patch,S->method->SchurC);
   
-  sprintf(msg,"{ Populate B and E ...\n"
-              "} Populate B and E --> Done. ( Wall-Clock = %.0fs )\n",
-                get_time_sec()-time1);
+  /* optional check: populate again visiting all nodes and compare */
+  if (PcmpsEZ("solve_ddm_schur_jacobian_check","yes"))
+  {
+    char check[MSG_SIZE1];
+    
+    check_jacobian_stencil(patch,check);
+    sprintf(msg,"{ Populate B and E ...\n"
+                "%s"
+                "} Populate B and E --> Done. ( Wall-Clock = %.0fs )\n",
+                  check,get_time_sec()-time1);
+  }
+  else
+  {
+    sprintf(msg,"{ Populate B and E ...\n"
+                "} Populate B and E --> Done. ( Wall-Clock = %.0fs )\n",
+                  get_time_sec()-time1);
+  }
   return msg;
+}
+
+/* 1 if this thread must populate Jacobians visiting all nodes, see
+// check_jacobian_stencil. */
+static __thread int jacobian_force_full_loop = 0;
+
+/* ->return value: 1 if the Jacobian loops must visit all nodes,
+// 0 if they only visit the coupling stencil (default). */
+int ddm_schur_jacobian_full_loop(void)
+{
+  if (jacobian_force_full_loop)
+    return 1;
+    
+  return PcmpsEZ("solve_ddm_schur_jacobian_loop","full");
+}
+
+/* fill stencil[] with the nodes lmn that can couple to node ijk in a
+// Jacobian row, i.e. the nodes sharing a coordinate plane with ijk
+// ->return value: number of nodes in stencil. */
+Uint ddm_schur_jacobian_stencil(const Patch_T *const patch,const Uint ijk,
+                                const int full,Uint *const stencil)
+{
+  const Uint *const n = patch->n;
+  Uint i,j,k,l,m,q;
+  Uint c = 0;
+  
+  if (full)
+  {
+    for (l = 0; l < patch->nn; ++l)
+      stencil[l] = l;
+    return patch->nn;
+  }
+  
+  ijk_to_i_j_k(ijk,n,&i,&j,&k);
+  
+  /* l == i */
+  for (m = 0; m < n[1]; ++m)
+    for (q = 0; q < n[2]; ++q)
+      stencil[c++] = i_j_k_to_ijk(n,i,m,q);
+  
+  /* m == j, l != i */
+  for (l = 0; l < n[0]; ++l)
+  {
+    if (l == i)
+      continue;
+    for (q = 0; q < n[2]; ++q)
+      stencil[c++] = i_j_k_to_ijk(n,l,j,q);
+  }
+  
+  /* q == k, l != i, m != j */
+  for (l = 0; l < n[0]; ++l)
+  {
+    if (l == i)
+      continue;
+    for (m = 0; m < n[1]; ++m)
+    {
+      if (m == j)
+        continue;
+      stencil[c++] = i_j_k_to_ijk(n,l,m,k);
+    }
+  }
+  
+  return c;
+}
+
+/* populate B and E once more visiting all nodes and compare with the
+// stencil version in SchurC->B and SchurC->E_Trans. writes a report
+// into msg (at most MSG_SIZE1 chars). */
+static void check_jacobian_stencil(Patch_T *const patch,char *const msg)
+{
+  Solving_Man_T *const S = patch->solving_man;
+  DDM_Schur_Complement_T *const SchurC = S->method->SchurC;
+  const Uint cf = S->cf;
+  Matrix_T *const B = SchurC->B;
+  Matrix_T *const E = SchurC->E_Trans;
+  Matrix_T *Bf = alloc_matrix(REG_SF,B->row,B->col);
+  Matrix_T *Ef = alloc_matrix(REG_SF,E->row,E->col);
+  double maxv = 0,maxd = 0;
+  long r,c;
+  
+  SchurC->B       = Bf;
+  SchurC->E_Trans = Ef;
+  jacobian_force_full_loop = 1;
+  S->jacobian_field_eq[cf](patch,SchurC);
+  S->jacobian_bc_eq[cf](patch,SchurC);
+  jacobian_force_full_loop = 0;
+  SchurC->B       = B;
+  SchurC->E_Trans = E;
+  
+  for (r = 0; r < B->row; ++r)
+    for (c = 0; c < B->col; ++c)
+    {
+      maxv = fmax(maxv,fabs(Bf->reg->A[r][c]));
+      maxd = fmax(maxd,fabs(Bf->reg->A[r][c]-B->reg->A[r][c]));
+    }
+  for (r = 0; r < E->row; ++r)
+    for (c = 0; c < E->col; ++c)
+    {
+      maxv = fmax(maxv,fabs(Ef->reg->A[r][c]));
+      maxd = fmax(maxd,fabs(Ef->reg->A[r][c]-E->reg->A[r][c]));
+    }
+  
+  snprintf(msg,MSG_SIZE1,
+           "o.  Jacobian stencil check: max|full-stencil| = %e, "
+           "max|full| = %e\n",maxd,maxv);
+  
+  free_matrix(Bf);
+  free_matrix(Ef);
 }
 
 /* making B when the grid only has one patch.

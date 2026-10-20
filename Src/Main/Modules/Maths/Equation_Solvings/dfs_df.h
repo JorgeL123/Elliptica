@@ -215,8 +215,8 @@
 
 /* normalization * coords jacobian * Jd2f_dudX (optimized) */
 #define Jd2f_dudx_opt(patch, dx_axis, X_axis, ijk, qi,qj) \
-  ( Jnorm_opt(X_axis)*JdX_dx(patch,ijk,X_axis,dx_axis)*JdN_dX(patch,X_axis)*\
-    Jd2f_dudX_opt(Jtheta_opt(qi,X_axis),Jtheta_opt(qj,X_axis),(JW->nm1[X_axis]),patch,qj,X_axis,ijk) )
+  ( JdX_dx(patch,ijk,X_axis,dx_axis)*JdN_dX(patch,X_axis)*\
+    JW->D1[X_axis][(qi)*(JW->nm1[X_axis]+1)+(qj)] )
 
 /* normalization * coords jacobian * Jd3f_dudXdX */
 #define Jd3f_dudxdy_opt(patch, dx_axis, dy_axis, dxdy_axis,X_axis, ijk, qi,qj) \

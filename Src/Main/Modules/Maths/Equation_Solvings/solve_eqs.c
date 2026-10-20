@@ -220,6 +220,7 @@ void move_dfdu_jacobian_patch(Patch_T *const patch2,Patch_T *const patch1)
   {
     patch1->solving_man->jacobian_workspace->dT_dx[i]   = 0;
     patch1->solving_man->jacobian_workspace->d2T_dx2[i] = 0;
+    patch1->solving_man->jacobian_workspace->D1[i]      = 0;
   }
   
 }

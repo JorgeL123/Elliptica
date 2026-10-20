@@ -170,20 +170,73 @@ int print_fields_3D(const Grid_T *const grid,const int iteration,
   return EXIT_SUCCESS;
 }
 
-/* print norms L2, L1 and L_inf of the specified fields 
-// in parameter "txt_output_0d" (supporting regular expression). */
-void print_fields_0D(const Grid_T *const grid,const int iteration, 
+/* mark the points of the patch used in the 0d norms.
+// for patches with an inner boundary (excision surface), 
+// exclude points greater n_skip.
+// ->return value: number of included points. */
+static Uint mask_0d_points(const Patch_T *const patch,const Uint n_skip,
+                           Uint *const mask)
+{
+  const Uint *const n = patch->n;
+  int skip_face[TOT_FACE] = {0};
+  Uint nin = 0,f,i,j,k;
+
+  if (n_skip && patch->innerB)
+  {
+    int found = 0;
+    if (patch->interface)
+    {
+      for (f = 0; f < TOT_FACE; ++f)
+      {
+        if (patch->interface[f] && patch->interface[f]->innerB)
+        {
+          skip_face[f] = 1;
+          found = 1;
+        }
+      }
+    }
+    /* interfaces not realized: cubed spherical around patches
+    // have their inner boundary at c = 0. */
+    if (!found)
+      skip_face[K_0] = 1;
+  }
+
+  FOR_ALL_ijk
+  {
+    ijk_to_i_j_k(ijk,n,&i,&j,&k);
+    mask[ijk] = !((skip_face[I_0]  && i < n_skip)                ||
+                  (skip_face[I_n0] && i + n_skip >= n[0])        ||
+                  (skip_face[J_0]  && j < n_skip)                ||
+                  (skip_face[J_n1] && j + n_skip >= n[1])        ||
+                  (skip_face[K_0]  && k < n_skip)                ||
+                  (skip_face[K_n2] && k + n_skip >= n[2]));
+    nin += mask[ijk];
+  }
+
+  return nin;
+}
+
+/* print norms L2, L1 and L_inf of the specified fields
+// in parameter "txt_output_0d" (supporting regular expression).
+// parameter "txt_output_0d_excision_skip_points" (default 0) 
+// skips points next to an excision surface. */
+void print_fields_0D(const Grid_T *const grid,const int iteration,
                       const char *const folder)
 {
   FUNC_TIC
   printf(Pretty0"iteration = %d\n",iteration);
-  
+
   const char *const field_par_name = "txt_output_0d";
   /* list of the fields to be printed out */
-  char **flds = 
+  char **flds =
      read_separated_items_in_string(PgetsEZ(field_par_name),',');
+  const int skip_par = PgetiEZ("txt_output_0d_excision_skip_points");
+  const Uint n_skip  = (skip_par == INT_MAX || skip_par < 0) ? 0 : (Uint)skip_par;
   Uint p;
-  
+
+  if (n_skip)
+    printf(Pretty0"excluding %u point layer(s) next to excision surfaces.\n",n_skip);
+
   if(flds)
   PR_0D_OpenMP(omp parallel for)
   FOR_ALL_PATCHES(p,grid)
@@ -197,10 +250,13 @@ void print_fields_0D(const Grid_T *const grid,const int iteration,
     char file_name[STR_LEN] = {0};
     double Linf,L1,L2;
     Uint f;
-    
+    Uint *mask = calloc(nn,sizeof(*mask));
+    IsNull(mask);
+    const Uint nin = mask_0d_points(patch,n_skip,mask);
+
     /* find all fields for this patch */
     fields = find_field_by_name_or_regex(patch,flds,&Nfld);
-    
+
     /* create the file if not exist */
     sprintf(file_name,"%s/%s_0d.txt",folder,stem);
     if (access(file_name,F_OK) != -1)/* if file exists */
@@ -224,13 +280,35 @@ void print_fields_0D(const Grid_T *const grid,const int iteration,
     fprintf(file,"%u",iteration);
     for (f = 0; f < Nfld; ++f)
     {
-      Linf = L_inf(nn,fields[f]->v);
-      L1   = L1_norm(nn,fields[f]->v,0);
-      L2   = L2_norm(nn,fields[f]->v,0);
+      if (nin == nn)
+      {
+        Linf = L_inf(nn,fields[f]->v);
+        L1   = L1_norm(nn,fields[f]->v,0);
+        L2   = L2_norm(nn,fields[f]->v,0);
+      }
+      else
+      {
+        const double *const v = fields[f]->v;
+        Linf = L1 = L2 = 0.;
+        if (v)
+        {
+          for (Uint ijk = 0; ijk < nn; ++ijk)
+          {
+            if (!mask[ijk]) continue;
+            const double av = fabs(v[ijk]);
+            Linf = av > Linf ? av : Linf;
+            L1  += av;
+            L2  += v[ijk]*v[ijk];
+          }
+        }
+        L1 = nin ? L1/nin : 0.;
+        L2 = nin ? sqrt(L2/nin) : 0.;
+      }
       fprintf(file," %0.15f %0.15f %0.15f", Linf,L1,L2);
     }
     fprintf(file,"\n");
-    
+
+    free(mask);
     Free(fields);
     Fclose(file);
   }/* end of FOR_ALL_PATCHES(p,grid) */

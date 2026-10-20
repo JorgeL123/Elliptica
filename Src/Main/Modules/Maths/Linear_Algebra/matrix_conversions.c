@@ -35,35 +35,56 @@ Matrix_T *compress_stack2ccs
   double **m;
   Uint i;
   
+  int *next = 0;/* next free slot of each column while filling */
+  
   assert(Nrow < INT_MAX);
   
-  for (c = 0; c < Ncol; ++c)
+  /* two passes, row by row (cache friendly for row pointers):
+  // 1. count the entries of each column, 2. fill them in.
+  // rows are visited in ascending order so each column stays sorted. */
+  for (i = 0; i < nm; ++i)
   {
+    if (!S[i])
+      continue;
+    m = S[i]->reg->A;
+    for (r = 0; r < nr[i]; ++r)
+      for (c = 0; c < Ncol; ++c)
+        if (GRT(ABSd(m[r][c]),DropLimit))
+          Ap[c+1]++;
+  }
+  for (c = 0; c < Ncol; ++c)
+    Ap[c+1] += Ap[c];
+  tNN0 = Ap[Ncol];
+  
+  if (tNN0)
+  {
+    Ai   = malloc((long Uint)tNN0*sizeof(*Ai));
+    IsNull(Ai);
+    Ax   = malloc((long Uint)tNN0*sizeof(*Ax));
+    IsNull(Ax);
+    next = malloc((long Uint)Ncol*sizeof(*next));
+    IsNull(next);
+    memcpy(next,Ap,(long Uint)Ncol*sizeof(*next));
+    
     R = 0;
-    /* go thru all of the rows */
     for (i = 0; i < nm; ++i)
     {
       if (S[i])
       {
         m = S[i]->reg->A;
         for (r = 0; r < nr[i]; ++r)
-        {
-          if (GRT(ABSd(m[r][c]),DropLimit))
-          {
-            Ai = realloc(Ai,(long Uint)(tNN0+1)*sizeof(*Ai));
-            assert(Ai);
-            Ax = realloc(Ax,(long Uint)(tNN0+1)*sizeof(*Ax));
-            assert(Ax);
-            Ai[tNN0] = (int)(r+R);
-            Ax[tNN0] = m[r][c];
-            tNN0++;
-          }
-        }
-      }/* end of if(C) */
+          for (c = 0; c < Ncol; ++c)
+            if (GRT(ABSd(m[r][c]),DropLimit))
+            {
+              Ai[next[c]] = (int)(r+R);
+              Ax[next[c]] = m[r][c];
+              next[c]++;
+            }
+      }/* end of if(S[i]) */
       R += nr[i];
-    }/* end of for (p = 0; p < np; ++p) */
-    Ap[c+1] = (int)tNN0;
-  }/* end of for (c = 0; c < Nc; ++c) */
+    }
+    free(next);
+  }
   
   /* free S matrices */
   if (flg == YES)
@@ -437,22 +458,34 @@ static void convert_reg2ccs(const Matrix_T *const reg,Matrix_T *const ccs,const 
   long tNN0 = 0;/* total number of none zero entries */
   long r,c;/* row and column */
   
-  for (c = 0; c < Nc; ++c)
-  {
-    for (r = 0; r < Nr; ++r)
-    {
+  IsNull(Ap);
+  /* two passes, row by row: count entries per column, then fill. */
+  for (r = 0; r < Nr; ++r)
+    for (c = 0; c < Nc; ++c)
       if (GRT(ABSd(m[r][c]),DropLimit))
-      {
-        Ai = realloc(Ai,(long Uint)(tNN0+1)*sizeof(*Ai));
-        assert(Ai);
-        Ax = realloc(Ax,(long Uint)(tNN0+1)*sizeof(*Ax));
-        assert(Ax);
-        Ai[tNN0] = (int)r;
-        Ax[tNN0] = m[r][c];
-        tNN0++;
-      }
-    }
-    Ap[c+1] = (int)tNN0;
+        Ap[c+1]++;
+  for (c = 0; c < Nc; ++c)
+    Ap[c+1] += Ap[c];
+  tNN0 = Ap[Nc];
+  
+  if (tNN0)
+  {
+    int *next = malloc((long Uint)Nc*sizeof(*next));
+    IsNull(next);
+    Ai = malloc((long Uint)tNN0*sizeof(*Ai));
+    IsNull(Ai);
+    Ax = malloc((long Uint)tNN0*sizeof(*Ax));
+    IsNull(Ax);
+    memcpy(next,Ap,(long Uint)Nc*sizeof(*next));
+    for (r = 0; r < Nr; ++r)
+      for (c = 0; c < Nc; ++c)
+        if (GRT(ABSd(m[r][c]),DropLimit))
+        {
+          Ai[next[c]] = (int)r;
+          Ax[next[c]] = m[r][c];
+          next[c]++;
+        }
+    free(next);
   }
   
   ccs->row = reg->row;
@@ -475,22 +508,34 @@ static void convert_reg2ccs_long(const Matrix_T *const reg,Matrix_T *const ccs_l
   long tNN0 = 0;/* total number of none zero entries */
   long r,c;/* row and column */
   
-  for (c = 0; c < Nc; ++c)
-  {
-    for (r = 0; r < Nr; ++r)
-    {
+  IsNull(Ap);
+  /* two passes, row by row: count entries per column, then fill. */
+  for (r = 0; r < Nr; ++r)
+    for (c = 0; c < Nc; ++c)
       if (GRT(ABSd(m[r][c]),DropLimit))
-      {
-        Ai = realloc(Ai,(long Uint)(tNN0+1)*sizeof(*Ai));
-        assert(Ai);
-        Ax = realloc(Ax,(long Uint)(tNN0+1)*sizeof(*Ax));
-        assert(Ax);
-        Ai[tNN0] = r;
-        Ax[tNN0] = m[r][c];
-        tNN0++;
-      }
-    }
-    Ap[c+1] = tNN0;
+        Ap[c+1]++;
+  for (c = 0; c < Nc; ++c)
+    Ap[c+1] += Ap[c];
+  tNN0 = Ap[Nc];
+  
+  if (tNN0)
+  {
+    long *next = malloc((long Uint)Nc*sizeof(*next));
+    IsNull(next);
+    Ai = malloc((long Uint)tNN0*sizeof(*Ai));
+    IsNull(Ai);
+    Ax = malloc((long Uint)tNN0*sizeof(*Ax));
+    IsNull(Ax);
+    memcpy(next,Ap,(long Uint)Nc*sizeof(*next));
+    for (r = 0; r < Nr; ++r)
+      for (c = 0; c < Nc; ++c)
+        if (GRT(ABSd(m[r][c]),DropLimit))
+        {
+          Ai[next[c]] = r;
+          Ax[next[c]] = m[r][c];
+          next[c]++;
+        }
+    free(next);
   }
   
   ccs_l->row = reg->row;
@@ -512,23 +557,37 @@ static void convert_rmo2ccs(const Matrix_T *const rmo,Matrix_T *const ccs,const 
   long tNN0 = 0;/* total number of none zero entries */
   long r,c;/* row and column */
   
+  IsNull(Ap);
+  /* two passes, row by row: count entries per column, then fill. */
+  for (r = 0; r < Nr; ++r)
+    for (c = 0; c < Nc; ++c)
+      if (GRT(ABSd(m[i_j_to_ij(Nc,r,c)]),DropLimit))
+        Ap[c+1]++;
   for (c = 0; c < Nc; ++c)
+    Ap[c+1] += Ap[c];
+  tNN0 = Ap[Nc];
+  
+  if (tNN0)
   {
+    int *next = malloc((long Uint)Nc*sizeof(*next));
+    IsNull(next);
+    Ai = malloc((long Uint)tNN0*sizeof(*Ai));
+    IsNull(Ai);
+    Ax = malloc((long Uint)tNN0*sizeof(*Ax));
+    IsNull(Ax);
+    memcpy(next,Ap,(long Uint)Nc*sizeof(*next));
     for (r = 0; r < Nr; ++r)
-    {
-      double mx = m[i_j_to_ij(Nc,r,c)];
-      if (GRT(ABSd(mx),DropLimit))
+      for (c = 0; c < Nc; ++c)
       {
-        Ai = realloc(Ai,(long Uint)(tNN0+1)*sizeof(*Ai));
-        assert(Ai);
-        Ax = realloc(Ax,(long Uint)(tNN0+1)*sizeof(*Ax));
-        assert(Ax);
-        Ai[tNN0] = (int)r;
-        Ax[tNN0] = mx;
-        tNN0++;
+        const double mx = m[i_j_to_ij(Nc,r,c)];
+        if (GRT(ABSd(mx),DropLimit))
+        {
+          Ai[next[c]] = (int)r;
+          Ax[next[c]] = mx;
+          next[c]++;
+        }
       }
-    }
-    Ap[c+1] = (int)tNN0;
+    free(next);
   }
   
   ccs->row = rmo->row;
