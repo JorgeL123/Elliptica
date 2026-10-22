@@ -414,6 +414,27 @@ static int set_system_params(Physics_T *const phys)
   // "P_ADM_control_tolerance"
   */
 
+  /* how to adjust Jz_ADM (Omega not set by force balance, e.g. scattering):
+  // name: "J_ADM_control_method"
+  // options:
+  // none (default): do nothing
+  // adjust(angular_velocity): Omega *= 1+W*(Jz_ADM_target/Jz_ADM-1).
+  // related: "Jz_ADM_target", "J_ADM_control_update_weight" (W, default 0),
+  // "J_ADM_control_tolerance" (1E-5), "J_ADM_control_threshold" (0.5),
+  // "J_ADM_control_max_step" (0.01), cf. sys_tune.c.
+  */
+
+  /* how to adjust E_ADM (v_r not set by eccentricity reduction, e.g. scattering):
+  // name: "E_ADM_control_method"
+  // options:
+  // none (default): do nothing
+  // adjust(infall_velocity): v_r^2 += 2W(E_ADM_target-E)/mu, sign of v_r kept.
+  // related: "E_ADM_target", "E_ADM_control_observe" (ADM(M) method, default
+  // S_inf,default), "E_ADM_control_update_weight" (W, default 0),
+  // "E_ADM_control_tolerance" (1E-6), "E_ADM_control_threshold" (1E-2),
+  // "E_ADM_control_max_step" (0.02), cf. sys_tune.c.
+  */
+
 
   UNUSED(phys);
   FUNC_TOC
