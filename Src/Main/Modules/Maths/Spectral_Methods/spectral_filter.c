@@ -55,28 +55,59 @@ static void filter_erfclog(const spectral_filter_T *const args)
   }
 
   // now rewrite the field with new coeffs
-  for (Uint ijk_ = 0; ijk_ < patch->nn; ++ijk_)
+  double *T[3];
+  for (Uint d = 0; d < 3; ++d)
   {
-    double X = General2ChebyshevExtrema(patch->node[ijk_]->X[0],0,patch);
-    double Y = General2ChebyshevExtrema(patch->node[ijk_]->X[1],1,patch);
-    double Z = General2ChebyshevExtrema(patch->node[ijk_]->X[2],2,patch);
-    v[ijk_]  = 0.;
-    
-    for (i = 0; i < n[0]; ++i)
+    T[d] = alloc_double(n[d]*n[d]);
+    for (Uint m = 0; m < n[d]; ++m)
     {
-      double tx = Tx(i,X);
-      for (j = 0; j < n[1]; ++j)
-      {
-        double ty = Ty(j,Y);
-        for (k = 0; k < n[2]; ++k)
-        {
-          Uint ijk = i_j_k_to_ijk(n,i,j,k);
-          
-          v[ijk_] += C[ijk]*tx*ty*Tz(k,Z);
-        }
-      }
+      Uint e[3] = {0,0,0};
+      e[d] = m;
+      const double q = General2ChebyshevExtrema(
+                         patch->node[i_j_k_to_ijk(n,e[0],e[1],e[2])]->X[d],d,patch);
+      for (Uint a = 0; a < n[d]; ++a)
+        T[d][m*n[d]+a] = T_cheb_combined(n[d],a,q);
     }
-  }// end of for (Uint ijk_ = 0; ijk_ < patch->nn; ++ijk_)
+  }
+
+  double *const A = alloc_double(patch->nn);
+  double *const B = alloc_double(patch->nn);
+
+  for (i = 0; i < n[0]; ++i)
+    for (j = 0; j < n[1]; ++j)
+      for (k = 0; k < n[2]; ++k)
+      {
+        double s = 0.;
+        for (Uint c = 0; c < n[2]; ++c)
+          s += C[i_j_k_to_ijk(n,i,j,c)]*T[2][k*n[2]+c];
+        A[i_j_k_to_ijk(n,i,j,k)] = s;
+      }
+
+  for (i = 0; i < n[0]; ++i)
+    for (j = 0; j < n[1]; ++j)
+      for (k = 0; k < n[2]; ++k)
+      {
+        double s = 0.;
+        for (Uint b = 0; b < n[1]; ++b)
+          s += A[i_j_k_to_ijk(n,i,b,k)]*T[1][j*n[1]+b];
+        B[i_j_k_to_ijk(n,i,j,k)] = s;
+      }
+
+  for (i = 0; i < n[0]; ++i)
+    for (j = 0; j < n[1]; ++j)
+      for (k = 0; k < n[2]; ++k)
+      {
+        double s = 0.;
+        for (Uint a = 0; a < n[0]; ++a)
+          s += B[i_j_k_to_ijk(n,a,j,k)]*T[0][i*n[0]+a];
+        v[i_j_k_to_ijk(n,i,j,k)] = s;
+      }
+
+  free(A);
+  free(B);
+  free(T[0]);
+  free(T[1]);
+  free(T[2]);
 }
 
 /* logerfc filter (adapted from whisky THC)

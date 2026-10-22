@@ -56,8 +56,84 @@ INLINE double Cheb_Un(const int n, const double x)
     double th = acos(x);
     u = sin((n+1)*th)/sin(th);
   }
-  
+
   return u;
+}
+
+/* 1D Chebyshev interpolation using Clenshaw summation
+// -> return value: interpolation value.
+*/
+INLINE double Cheb_Tn_clenshaw(const double *C, const Uint nx, const Uint stride,
+                               const double x, const double highest_mode_weight)
+{
+  if (nx == 1)
+    return C[0];
+
+  // This domain check is needed to preserve the behavior of the old Tx, Ty, Tz calls;
+  // the code expects it to return NaN if it's out of the domain.
+  if (!(x >= -1.0 && x <= 1.0))
+    return NAN;
+
+  double bk2 = 0.0;
+  double bk1 = highest_mode_weight*C[stride*(nx-1)];
+  for (Uint k = nx-2; k > 0; --k)
+  {
+    double bk = 2.0*C[stride*k] + 2*x*bk1 - bk2;
+    bk2 = bk1;
+    bk1 = bk;
+  }
+  return C[0] + x*bk1 - bk2;
+}
+
+/* interpolate derivative of Chebyshev series at x with Clenshaw summation
+// ->return value: df(x)/dx
+*/
+INLINE double dCheb_Tn_clenshaw_dx(const double *C, const Uint nx, const Uint stride,
+                                   const double x, const double highest_mode_weight)
+{
+  if (nx == 1)
+    return 0;
+
+  double bk2 = 0.0;
+  double bk1 = highest_mode_weight*(nx - 1)*C[stride*(nx - 1)];
+  for (Uint k = nx - 2; k > 0; --k)
+  {
+    double bk = 2.0*k*C[stride*k] + 2.0*x*bk1 - bk2;
+    bk2 = bk1;
+    bk1 = bk;
+  }
+
+  return bk1;
+}
+
+/* interpolate second derivative of Chebyshev series at x with Clenshaw summation
+// ->return value: d^2f(x)/dx^2
+*/
+INLINE double d2Cheb_Tn_clenshaw_dx2(const double *C, const Uint nx, const Uint stride,
+                                     const double x, const double highest_mode_weight)
+{
+  if (nx <= 2)
+    return 0;
+
+  double bk2 = 0.0;
+  double bk1 = highest_mode_weight*(nx - 1)*C[stride*(nx - 1)];
+
+  double dk2 = 0.0;
+  double dk1 = 0.0;
+
+  for (Uint k = nx - 2; k > 0; --k)
+  {
+    double bk = 2.0*k*C[stride*k] + 2.0*x*bk1 - bk2;
+    double dk = 2.0*bk1 + 2.0*x*dk1 - dk2;
+
+    bk2 = bk1;
+    bk1 = bk;
+
+    dk2 = dk1;
+    dk1 = dk;
+  }
+
+  return dk1;
 }
 
 
@@ -165,6 +241,12 @@ double poly5_f_point(const double x,const double y,const double z);
 int Factorial(const int n);
 INLINE double Cheb_Tn(const int n, const double x) INLINE_WARN_UNUSED_FUNC;
 INLINE double Cheb_Un(const int n, const double x) INLINE_WARN_UNUSED_FUNC;
+INLINE double Cheb_Tn_clenshaw(const double *C, const Uint nx, const Uint stride,
+                               const double x, const double highest_mode_weight) INLINE_WARN_UNUSED_FUNC;
+INLINE double dCheb_Tn_clenshaw_dx(const double *C, const Uint nx, const Uint stride,
+                                   const double x, const double highest_mode_weight) INLINE_WARN_UNUSED_FUNC;
+INLINE double d2Cheb_Tn_clenshaw_dx2(const double *C, const Uint nx, const Uint stride,
+                                     const double x, const double highest_mode_weight) INLINE_WARN_UNUSED_FUNC;
 double d2Cheb_Tn_dx2(const int n, const double x);
 double dCheb_Tn_dx(const int n, const double x);
 double d2Cheb_Tn_dx2(const int n, const double x);

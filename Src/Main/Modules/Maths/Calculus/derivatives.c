@@ -655,63 +655,42 @@ static double *spectral_derivative_1stOrder(Field_T *const f,const Dd_T dir_e)
   return der;
 }
 
-/* interpolate derivative of Chebyshev series at x with Clenshaw summation
-// ->return value: df(x)/dx
-*/
-static double clenshaw_Chebyshev_derivative(const double *C, const Uint nx,
-                                            const Uint stride, const double x,
-                                            const double highest_mode_weight)
+static double *derivative_Chebyshev_Tn(Field_T *const f,const Dd_T dir,
+                                       double *(*const make_collocation)(const Uint N),
+                                       const double highest_mode_weight,const Uint order)
 {
-  if (nx == 1)
-    return 0;
-  // FIXME: Domain check is possibly unnecessary?
-  if (!(x >= -1.0 && x <= 1.0))
-    return NAN;
+  assert(dir <= _N2_);
+  make_coeffs_1d(f,dir);
 
-  double bk2 = 0.0;
-  double bk1 = highest_mode_weight*(nx - 1)*C[stride*(nx - 1)];
-  for (Uint k = nx - 2; k > 0; --k)
+  Patch_T *const patch = f->patch;
+  const Uint *const n = patch->n;
+  const Uint nn = total_nodes_patch(patch);
+  double *der = alloc_double(nn);
+  double *x = make_collocation(n[dir]);
+  const double *const coeffs = f->v2;
+  Uint e[3] = {0,0,0};
+  e[dir] = 1;
+  const Uint stride = i_j_k_to_ijk(n,e[0],e[1],e[2]) - i_j_k_to_ijk(n,0,0,0);
+  Uint l;
+
+  /* OpenMP_2d_Pragma(omp parallel for) */
+  for (l = 0; l < nn; ++l)
   {
-    double bk = 2.0*k*C[stride*k] + 2.0*x*bk1 - bk2;
-    bk2 = bk1;
-    bk1 = bk;
+    Uint ijk[3];
+
+    ijk_to_i_j_k(l,n,&ijk[0],&ijk[1],&ijk[2]);
+    const double xp = x[ijk[dir]];
+    ijk[dir] = 0;
+    const double *const c = &coeffs[i_j_k_to_ijk(n,ijk[0],ijk[1],ijk[2])];
+
+    if (order == 1)
+      der[l] = dCheb_Tn_clenshaw_dx(c, n[dir], stride, xp, highest_mode_weight);
+    else
+      der[l] = d2Cheb_Tn_clenshaw_dx2(c, n[dir], stride, xp, highest_mode_weight);
   }
+  free(x);
 
-  return bk1;
-}
-
-/* interpolate second derivative of Chebyshev series at x with Clenshaw summation
-// ->return value: d^2f(x)/dx^2
-*/
-static double clenshaw_Chebyshev_derivative_2ndOrder(const double *C, const Uint nx,
-                                            const Uint stride, const double x,
-                                            const double highest_mode_weight)
-{
-  if (nx <= 2)
-    return 0;
-  // FIXME: Domain check is possibly unnecessary?
-  if (!(x >= -1.0 && x <= 1.0))
-    return NAN;
-  
-  double bk2 = 0.0;
-  double bk1 = highest_mode_weight*(nx - 1)*C[stride*(nx - 1)];
-
-  double dk2 = 0.0;
-  double dk1 = 0.0;
-
-  for (Uint k = nx - 2; k > 0; --k)
-  {
-    double bk = 2.0*k*C[stride*k] + 2.0*x*bk1 - bk2;
-    double dk = 2.0*bk1 + 2.0*x*dk1 - dk2;
-
-    bk2 = bk1;
-    bk1 = bk;
-
-    dk2 = dk1;
-    dk1 = dk;
-  }
-
-  return dk1;
+  return der;
 }
 
 /* taking derivative for f(N) = sum_{0}^{n-1}a_n*T_n(N), in the specified
@@ -721,62 +700,7 @@ static double clenshaw_Chebyshev_derivative_2ndOrder(const double *C, const Uint
 */
 static double *derivative_ChebyshevExtrema_Tn_1stOrder(Field_T *const f,const Dd_T dir)
 {
-  assert(dir <= _N2_);
-  make_coeffs_1d(f,dir);
-
-  Patch_T *const patch = f->patch;
-  const Uint *const n = patch->n;
-  const Uint nn = total_nodes_patch(patch);
-  double *der = alloc_double(nn);
-  double *x = make_1Dcollocation_ChebExtrema(n[dir]);
-  const double *const coeffs = f->v2;
-  Uint l;
-
-  if (dir == 0)
-  {
-    Uint stride = i_j_k_to_ijk(n,1,0,0) - i_j_k_to_ijk(n,0,0,0);
-    /* OpenMP_2d_Pragma(omp parallel for) */
-    for (l = 0; l < nn; ++l)
-    {
-      Uint i,j,k;
-
-      ijk_to_i_j_k(l,n,&i,&j,&k);
-
-      der[l] = clenshaw_Chebyshev_derivative(&coeffs[i_j_k_to_ijk(n,0,j,k)], n[0],
-                                             stride, x[i], 1.0);
-    }
-  }
-  else if (dir == 1)
-  {
-    Uint stride = i_j_k_to_ijk(n,0,1,0) - i_j_k_to_ijk(n,0,0,0);
-    /* OpenMP_2d_Pragma(omp parallel for) */
-    for (l = 0; l < nn; ++l)
-    {
-      Uint i,j,k;
-
-      ijk_to_i_j_k(l,n,&i,&j,&k);
-
-      der[l] = clenshaw_Chebyshev_derivative(&coeffs[i_j_k_to_ijk(n,i,0,k)], n[1],
-                                             stride, x[j], 1.0);
-    }
-  }
-  else /* (dir == 2) */
-  {
-    Uint stride = i_j_k_to_ijk(n,0,0,1) - i_j_k_to_ijk(n,0,0,0);
-    /* OpenMP_2d_Pragma(omp parallel for) */
-    for (l = 0; l < nn; ++l)
-    {
-      Uint i,j,k;
-
-      ijk_to_i_j_k(l,n,&i,&j,&k);
-
-      der[l] = clenshaw_Chebyshev_derivative(&coeffs[i_j_k_to_ijk(n,i,j,0)], n[2],
-                                             stride, x[k], 1.0);
-    }
-  }
-  free(x);
-
-  return der;
+  return derivative_Chebyshev_Tn(f,dir,make_1Dcollocation_ChebExtrema,1.0,1);
 }
 
 /* taking derivative for f(N) = c(0)+2*\sum_{j=1}^{n-1} c(j)Tj(N), in the specified
@@ -786,62 +710,7 @@ static double *derivative_ChebyshevExtrema_Tn_1stOrder(Field_T *const f,const Dd
 */
 static double *derivative_ChebyshevNodes_Tn_1stOrder(Field_T *const f,const Dd_T dir)
 {
-  assert(dir <= _N2_);
-  make_coeffs_1d(f,dir);
-
-  Patch_T *const patch = f->patch;
-  const Uint *const n = patch->n;
-  const Uint nn = patch->nn;
-  double *der = alloc_double(nn);
-  double *x = make_1Dcollocation_ChebNodes(n[dir]);
-  const double *const coeffs = f->v2;
-  Uint l;
-
-  if (dir == 0)
-  {
-    Uint stride = i_j_k_to_ijk(n,1,0,0) - i_j_k_to_ijk(n,0,0,0);
-    /* OpenMP_2d_Pragma(omp parallel for) */
-    for (l = 0; l < nn; ++l)
-    {
-      Uint i,j,k;
-
-      ijk_to_i_j_k(l,n,&i,&j,&k);
-
-      der[l] = clenshaw_Chebyshev_derivative(&coeffs[i_j_k_to_ijk(n,0,j,k)], n[0],
-                                             stride, x[i], 2.0);
-    }
-  }
-  else if (dir == 1)
-  {
-    Uint stride = i_j_k_to_ijk(n,0,1,0) - i_j_k_to_ijk(n,0,0,0);
-    /* OpenMP_2d_Pragma(omp parallel for) */
-    for (l = 0; l < nn; ++l)
-    {
-      Uint i,j,k;
-
-      ijk_to_i_j_k(l,n,&i,&j,&k);
-
-      der[l] = clenshaw_Chebyshev_derivative(&coeffs[i_j_k_to_ijk(n,i,0,k)], n[1],
-                                             stride, x[j], 2.0);
-    }
-  }
-  else /* (dir == 2) */
-  {
-    Uint stride = i_j_k_to_ijk(n,0,0,1) - i_j_k_to_ijk(n,0,0,0);
-    /* OpenMP_2d_Pragma(omp parallel for) */
-    for (l = 0; l < nn; ++l)
-    {
-      Uint i,j,k;
-
-      ijk_to_i_j_k(l,n,&i,&j,&k);
-
-      der[l] = clenshaw_Chebyshev_derivative(&coeffs[i_j_k_to_ijk(n,i,j,0)], n[2],
-                                             stride, x[k], 2.0);
-    }
-  }
-  free(x);
-
-  return der;
+  return derivative_Chebyshev_Tn(f,dir,make_1Dcollocation_ChebNodes,2.0,1);
 }
 
 /* taking second order derivative for f(N) = sum_{0}^{n-1}a_n*T_n(N), in the specified
@@ -851,62 +720,7 @@ static double *derivative_ChebyshevNodes_Tn_1stOrder(Field_T *const f,const Dd_T
 */
 static double *derivative_ChebyshevExtrema_Tn_2ndOrder(Field_T *const f,const Dd_T dir)
 {
-  assert(dir <= _N2_);
-  make_coeffs_1d(f,dir);
-
-  Patch_T *const patch = f->patch;
-  const Uint *const n = patch->n;
-  const Uint nn = total_nodes_patch(patch);
-  double *der = alloc_double(nn);
-  double *x = make_1Dcollocation_ChebExtrema(n[dir]);
-  const double *const coeffs = f->v2;
-  Uint l;
-
-  if (dir == 0)
-  {
-    Uint stride = i_j_k_to_ijk(n,1,0,0) - i_j_k_to_ijk(n,0,0,0);
-    /* OpenMP_2d_Pragma(omp parallel for) */
-    for (l = 0; l < nn; ++l)
-    {
-      Uint i,j,k;
-
-      ijk_to_i_j_k(l,n,&i,&j,&k);
-
-      der[l] = clenshaw_Chebyshev_derivative_2ndOrder(&coeffs[i_j_k_to_ijk(n,0,j,k)], n[0],
-                                                      stride, x[i], 1.0);
-    }
-  }
-  else if (dir == 1)
-  {
-    Uint stride = i_j_k_to_ijk(n,0,1,0) - i_j_k_to_ijk(n,0,0,0);
-    /* OpenMP_2d_Pragma(omp parallel for) */
-    for (l = 0; l < nn; ++l)
-    {
-      Uint i,j,k;
-
-      ijk_to_i_j_k(l,n,&i,&j,&k);
-
-      der[l] = clenshaw_Chebyshev_derivative_2ndOrder(&coeffs[i_j_k_to_ijk(n,i,0,k)], n[1],
-                                                      stride, x[j], 1.0);
-    }
-  }
-  else /* (dir == 2) */
-  {
-    Uint stride = i_j_k_to_ijk(n,0,0,1) - i_j_k_to_ijk(n,0,0,0);
-    /* OpenMP_2d_Pragma(omp parallel for) */
-    for (l = 0; l < nn; ++l)
-    {
-      Uint i,j,k;
-
-      ijk_to_i_j_k(l,n,&i,&j,&k);
-
-      der[l] = clenshaw_Chebyshev_derivative_2ndOrder(&coeffs[i_j_k_to_ijk(n,i,j,0)], n[2],
-                                                      stride, x[k], 1.0);
-    }
-  }
-  free(x);
-
-  return der;
+  return derivative_Chebyshev_Tn(f,dir,make_1Dcollocation_ChebExtrema,1.0,2);
 }
 
 /* taking second order derivative for f(N) = sum_{0}^{n-1}a_n*T_n(N), in the specified
@@ -916,62 +730,7 @@ static double *derivative_ChebyshevExtrema_Tn_2ndOrder(Field_T *const f,const Dd
 */
 static double *derivative_ChebyshevNodes_Tn_2ndOrder(Field_T *const f,const Dd_T dir)
 {
-  assert(dir <= _N2_);
-  make_coeffs_1d(f,dir);
-
-  Patch_T *const patch = f->patch;
-  const Uint *const n = patch->n;
-  const Uint nn = total_nodes_patch(patch);
-  double *der = alloc_double(nn);
-  double *x = make_1Dcollocation_ChebNodes(n[dir]);
-  const double *const coeffs = f->v2;
-  Uint l;
-
-  if (dir == 0)
-  {
-    Uint stride = i_j_k_to_ijk(n,1,0,0) - i_j_k_to_ijk(n,0,0,0);
-    /* OpenMP_2d_Pragma(omp parallel for) */
-    for (l = 0; l < nn; ++l)
-    {
-      Uint i,j,k;
-
-      ijk_to_i_j_k(l,n,&i,&j,&k);
-
-      der[l] = clenshaw_Chebyshev_derivative_2ndOrder(&coeffs[i_j_k_to_ijk(n,0,j,k)], n[0],
-                                                      stride, x[i], 2.0);
-    }
-  }
-  else if (dir == 1)
-  {
-    Uint stride = i_j_k_to_ijk(n,0,1,0) - i_j_k_to_ijk(n,0,0,0);
-    /* OpenMP_2d_Pragma(omp parallel for) */
-    for (l = 0; l < nn; ++l)
-    {
-      Uint i,j,k;
-
-      ijk_to_i_j_k(l,n,&i,&j,&k);
-
-      der[l] = clenshaw_Chebyshev_derivative_2ndOrder(&coeffs[i_j_k_to_ijk(n,i,0,k)], n[1],
-                                                      stride, x[j], 2.0);
-    }
-  }
-  else /* (dir == 2) */
-  {
-    Uint stride = i_j_k_to_ijk(n,0,0,1) - i_j_k_to_ijk(n,0,0,0);
-    /* OpenMP_2d_Pragma(omp parallel for) */
-    for (l = 0; l < nn; ++l)
-    {
-      Uint i,j,k;
-
-      ijk_to_i_j_k(l,n,&i,&j,&k);
-
-      der[l] = clenshaw_Chebyshev_derivative_2ndOrder(&coeffs[i_j_k_to_ijk(n,i,j,0)], n[2],
-                                                      stride, x[k], 2.0);
-    }
-  }
-  free(x);
-
-  return der;
+  return derivative_Chebyshev_Tn(f,dir,make_1Dcollocation_ChebNodes,2.0,2);
 }
 
 

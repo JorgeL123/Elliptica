@@ -586,7 +586,7 @@ void test_dq_dN(Grid_T *const grid)
 */
 double General2ChebyshevExtrema(const double X,const Uint dir,const Patch_T *const patch)
 {
-  if (patch->basis[dir]       != Chebyshev_Tn_BASIS && 
+  if (patch->basis[dir]       != Chebyshev_Tn_BASIS || 
       patch->collocation[dir] != Chebyshev_Extrema    )
     Error0("This direction at the specified patch doesn't use first kind Chebyshev,\n"
       "and Chebyshev Extrema collocation which this function needs.\n");

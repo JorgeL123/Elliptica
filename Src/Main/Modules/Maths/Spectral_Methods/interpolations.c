@@ -417,31 +417,6 @@ static fInterpolation_T *interpolation_Chebyshev_Tn(Interpolation_T *const inter
   return func;
 }
 
-/* 1D Chebyshev interpolation using Clenshaw summation
-// -> return value: interpolation value.
-*/
-static double clenshaw_Chebyshev_sum(const double *C, const Uint nx, const Uint stride,
-                                     const double x)
-{
-  if (nx == 1)
-    return C[0];
-
-  // This domain check is needed to preserve the behavior of the old Tx, Ty, Tz calls;
-  // the code expects it to return NaN if it's out of the domain.
-  if (!(x >= -1.0 && x <= 1.0))
-    return NAN;
-
-  double bk2 = 0.0;
-  double bk1 = C[stride*(nx-1)];
-  for (Uint k = nx-2; k > 0; --k)
-  {
-    double bk = 2.0*C[stride*k] + 2*x*bk1 - bk2;
-    bk2 = bk1;
-    bk1 = bk;
-  }
-  return C[0] + x*bk1 - bk2;
-}
-
 /* 2D Chebyshev interpolation using Clenshaw summation
 // -> return value: interpolation value.
 */
@@ -449,22 +424,10 @@ static double clenshaw_Chebyshev_sum_2d(const double *C, const Uint nx,
                                        const Uint stride_x, const double X, const Uint ny,
                                        const Uint stride_y, const double Y)
 {
-  // This domain check is needed to preserve the behavior of the old Tx, Ty, Tz calls;
-  // the code expects it to return NaN if it's out of the domain.
-  if (nx > 1 && !(X >= -1.0 && X <= 1.0))
-    return NAN;
-  double bk2 = 0.0;
-  double bk1 = clenshaw_Chebyshev_sum(&C[stride_x*(nx-1)], ny, stride_y, Y);
-  if (nx == 1)
-    return bk1;
-  for (Uint k = nx-2; k > 0; --k)
-  {
-    double bk = 2.0*clenshaw_Chebyshev_sum(&C[stride_x*k], ny, stride_y, Y) +
-                2*X*bk1 - bk2;
-    bk2 = bk1;
-    bk1 = bk;
-  }
-  return clenshaw_Chebyshev_sum(C, ny, stride_y, Y) + X*bk1 - bk2;
+  double g[nx];
+  for (Uint k = 0; k < nx; ++k)
+    g[k] = Cheb_Tn_clenshaw(&C[stride_x*k], ny, stride_y, Y, 1.0);
+  return Cheb_Tn_clenshaw(g, nx, 1, X, 1.0);
 }
 
 /* interpolation in X direction keeping the other two directions constant.
@@ -478,13 +441,12 @@ static double interpolation_Chebyshev_Tn_X(Interpolation_T *const interp_s)
   const Uint J = interp_s->J;/* index of const coords */
   const Uint K = interp_s->K;/* index of const coords */
   const double *C = 0;/* coeffs of expansion of field in Tn */
-  Uint i;
   
   make_coeffs_1d(field,0);
   C = field->v2;
   
   const Uint stride = i_j_k_to_ijk(n,1,J,K) - i_j_k_to_ijk(n,0,J,K);
-  return clenshaw_Chebyshev_sum(&C[i_j_k_to_ijk(n,0,J,K)], n[0], stride, X);
+  return Cheb_Tn_clenshaw(&C[i_j_k_to_ijk(n,0,J,K)], n[0], stride, X, 1.0);
 }
 
 /* interpolation in Y direction keeping the other two directions constant.
@@ -498,13 +460,12 @@ static double interpolation_Chebyshev_Tn_Y(Interpolation_T *const interp_s)
   const Uint I = interp_s->I;/* index of const coords */
   const Uint K = interp_s->K;/* index of const coords */
   const double *C = 0;/* coeffs of expansion of field in Tn */
-  Uint j;
   
   make_coeffs_1d(field,1);
   C = field->v2;
   
   const Uint stride = i_j_k_to_ijk(n,I,1,K) - i_j_k_to_ijk(n,I,0,K);
-  return clenshaw_Chebyshev_sum(&C[i_j_k_to_ijk(n,I,0,K)], n[1], stride, Y);
+  return Cheb_Tn_clenshaw(&C[i_j_k_to_ijk(n,I,0,K)], n[1], stride, Y, 1.0);
 }
 
 /* interpolation in Z direction keeping the other two directions constant.
@@ -518,13 +479,12 @@ static double interpolation_Chebyshev_Tn_Z(Interpolation_T *const interp_s)
   const Uint I = interp_s->I;/* index of const coords */
   const Uint J = interp_s->J;/* index of const coords */
   const double *C = 0;/* coeffs of expansion of field in Tn */
-  Uint k;
   
   make_coeffs_1d(field,2);
   C = field->v2;
   
   const Uint stride = i_j_k_to_ijk(n,I,J,1) - i_j_k_to_ijk(n,I,J,0);
-  return clenshaw_Chebyshev_sum(&C[i_j_k_to_ijk(n,I,J,0)], n[2], stride, Z);
+  return Cheb_Tn_clenshaw(&C[i_j_k_to_ijk(n,I,J,0)], n[2], stride, Z, 1.0);
 }
 
 /* interpolation in X&Y directions keeping the other direction constant.
@@ -538,7 +498,6 @@ static double interpolation_Chebyshev_Tn_XY(Interpolation_T *const interp_s)
   const Uint *const n = interp_s->field->patch->n;
   const Uint K = interp_s->K;/* index of const coords */
   const double *C = 0;/* coeffs of expansion of field in Tn */
-  Uint i,j;
   
   make_coeffs_2d(field,0,1);
   C = field->v2;
@@ -560,7 +519,6 @@ static double interpolation_Chebyshev_Tn_XZ(Interpolation_T *const interp_s)
   const Uint *const n = interp_s->field->patch->n;
   const Uint J = interp_s->J;/* index of const coords. */
   const double *C = 0;/* coeffs of expansion of field in Tn */
-  Uint i,k;
   
   make_coeffs_2d(field,0,2);
   C = field->v2;
@@ -582,7 +540,6 @@ static double interpolation_Chebyshev_Tn_YZ(Interpolation_T *const interp_s)
   const Uint *const n = interp_s->field->patch->n;
   const Uint I = interp_s->I;/* index of const coords. */
   const double *C = 0;/* coeffs of expansion of field in Tn */
-  Uint j,k;
   
   make_coeffs_2d(field,1,2);
   C = field->v2;
@@ -603,31 +560,17 @@ static double interpolation_Chebyshev_Tn_XYZ(Interpolation_T *const interp_s)
   const double Z = General2ChebyshevExtrema(interp_s->Z,2,field->patch);/* Z coord of the interesting point */
   const Uint *const n = interp_s->field->patch->n;
   const double *C = 0;/* coeffs of expansion of field in Tn */
-  Uint i,j,k;
   
   make_coeffs_3d(field);
   C = field->v2;
   
-  // This domain check is needed to preserve the behavior of the old Tx, Ty, Tz calls;
-  // the code expects it to return NaN if it's out of the domain.
-  if (n[0] > 1 && !(X >= -1.0 && X <= 1.0))
-    return NAN;
   const Uint stride_y = i_j_k_to_ijk(n,0,1,0) - i_j_k_to_ijk(n,0,0,0);
   const Uint stride_z = i_j_k_to_ijk(n,0,0,1) - i_j_k_to_ijk(n,0,0,0);
-  double bk2 = 0.0;
-  double bk1 = clenshaw_Chebyshev_sum_2d(&C[i_j_k_to_ijk(n,n[0]-1,0,0)], n[1], stride_y,
-                                         Y, n[2], stride_z, Z);
-  if (n[0] == 1)
-    return bk1;
-  for (Uint i = n[0] - 2; i > 0; --i)
-  {
-    double bk = 2*clenshaw_Chebyshev_sum_2d(&C[i_j_k_to_ijk(n,i,0,0)], n[1], stride_y, Y,
-                                          n[2], stride_z, Z) + 2*bk1*X - bk2;
-    bk2 = bk1;
-    bk1 = bk;
-  }
-  return clenshaw_Chebyshev_sum_2d(&C[i_j_k_to_ijk(n,0,0,0)], n[1], stride_y, Y, n[2],
-                                   stride_z, Z) + bk1*X - bk2;
+  double g[n[0]];
+  for (Uint i = 0; i < n[0]; ++i)
+    g[i] = clenshaw_Chebyshev_sum_2d(&C[i_j_k_to_ijk(n,i,0,0)], n[1], stride_y, Y,
+                                     n[2], stride_z, Z);
+  return Cheb_Tn_clenshaw(g, n[0], 1, X, 1.0);
 }
 
 /* basis of expansion of interpolation with 
