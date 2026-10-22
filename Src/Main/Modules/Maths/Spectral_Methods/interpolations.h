@@ -27,6 +27,11 @@ static double interpolation_natural_cubic_spline_1d(Interpolation_T *const inter
 static double derivative_natural_cubic_spline_1d(Interpolation_T *const interp_s);
 static void find_coeffs_natural_cubic_spline_1d(Interpolation_T *const interp_s);
 static void order_arrays_natural_cubic_spline_1d(Interpolation_T *const interp_s);
+static double clenshaw_Chebyshev_sum(const double *C, const Uint nx, const Uint stride,
+                                     const double x);
+static double clenshaw_Chebyshev_sum_2d(const double *C, const Uint nx,
+                                     const Uint stride_x, const double X, const Uint ny,
+                                     const Uint stride_y, const double Y);
 static double interpolation_Chebyshev_Tn_X(Interpolation_T *const interp_s);
 static double interpolation_Chebyshev_Tn_Y(Interpolation_T *const interp_s);
 static double interpolation_Chebyshev_Tn_Z(Interpolation_T *const interp_s);
