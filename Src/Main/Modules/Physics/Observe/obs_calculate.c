@@ -64,9 +64,10 @@ void obs_calculate(Observe_T *const obs)
 
 }
 
-/* populating normal outward vector for around patches according to the given dir
-// NOTE: the normalization is respect to the physical metric gamma_{ij} */
-static void n_physical_metric_around(struct items_S *const adm,const Dd_T dir)
+/* unit normal of the surfaces q = const (q = dir), w.r.t. the conformal metric:
+// n^i = igConf^{ij} dq/dx^j / sqrt(igConf^{kl} dq/dx^k dq/dx^l). */
+static void n_conformal_unit_normal(struct items_S *const adm,const Dd_T dir,
+                                    const int physical)
 {
   Patch_T *const patch = adm->patch;
   const Uint nn = patch->nn;
@@ -75,34 +76,32 @@ static void n_physical_metric_around(struct items_S *const adm,const Dd_T dir)
   double *n_U2 = alloc_double(nn);
   Uint ijk;
 
-  READ_v(gConf_D2D2)
-  READ_v(gConf_D0D2)
-  READ_v(gConf_D0D0)
-  READ_v(gConf_D0D1)
-  READ_v(gConf_D1D2)
-  READ_v(gConf_D1D1)
+  READ_v(igConf_U0U0)
+  READ_v(igConf_U0U1)
+  READ_v(igConf_U0U2)
+  READ_v(igConf_U1U1)
+  READ_v(igConf_U1U2)
+  READ_v(igConf_U2U2)
   READ_v(psi);
 
   for (ijk = 0; ijk < nn; ++ijk)
   {
-    n_U0[ijk] = dq2_dq1(patch,dir,_x_,ijk);
-    n_U1[ijk] = dq2_dq1(patch,dir,_y_,ijk);
-    n_U2[ijk] = dq2_dq1(patch,dir,_z_,ijk);
+    double dq[3] = {dq2_dq1(patch,dir,_x_,ijk),
+                    dq2_dq1(patch,dir,_y_,ijk),
+                    dq2_dq1(patch,dir,_z_,ijk)};
 
-    /* normalization */
-    double psi4 = Pow2(psi[ijk])*Pow2(psi[ijk]);
-    double Norm2 =
-psi4*(gConf_D0D0[ijk]*pow(n_U0[ijk], 2) + 2.0*gConf_D0D1[ijk]*
-n_U0[ijk]*n_U1[ijk] + 2.0*gConf_D0D2[ijk]*n_U0[ijk]*n_U2[ijk] +
-gConf_D1D1[ijk]*pow(n_U1[ijk], 2) + 2.0*gConf_D1D2[ijk]*n_U1[ijk]*
-n_U2[ijk] + gConf_D2D2[ijk]*pow(n_U2[ijk], 2));
+    n_U0[ijk] = igConf_U0U0[ijk]*dq[0]+igConf_U0U1[ijk]*dq[1]+igConf_U0U2[ijk]*dq[2];
+    n_U1[ijk] = igConf_U0U1[ijk]*dq[0]+igConf_U1U1[ijk]*dq[1]+igConf_U1U2[ijk]*dq[2];
+    n_U2[ijk] = igConf_U0U2[ijk]*dq[0]+igConf_U1U2[ijk]*dq[1]+igConf_U2U2[ijk]*dq[2];
 
-    double Norm = sqrt(Norm2);
+    /* normalization, physical: n^i = psi^-2 nConf^i */
+    double Norm = sqrt(n_U0[ijk]*dq[0]+n_U1[ijk]*dq[1]+n_U2[ijk]*dq[2]);
+    if (physical)
+      Norm *= Pow2(psi[ijk]);
 
     n_U0[ijk] /= Norm;
     n_U1[ijk] /= Norm;
     n_U2[ijk] /= Norm;
-
   }
   adm->n_U0 = n_U0;
   adm->n_U1 = n_U1;
@@ -110,46 +109,17 @@ n_U2[ijk] + gConf_D2D2[ijk]*pow(n_U2[ijk], 2));
 }
 
 /* populating normal outward vector for around patches according to the given dir
+// NOTE: the normalization is respect to the physical metric gamma_{ij} */
+static void n_physical_metric_around(struct items_S *const adm,const Dd_T dir)
+{
+  n_conformal_unit_normal(adm,dir,1);
+}
+
+/* populating normal outward vector for around patches according to the given dir
 // NOTE: the normalization is respect to the conformal metric gamma_{ij} */
 static void n_conformal_metric_around(struct items_S *const adm,const Dd_T dir)
 {
-  Patch_T *const patch = adm->patch;
-  const Uint nn = patch->nn;
-  double *n_U0 = alloc_double(nn);
-  double *n_U1 = alloc_double(nn);
-  double *n_U2 = alloc_double(nn);
-  Uint ijk;
-
-  READ_v(gConf_D2D2)
-  READ_v(gConf_D0D2)
-  READ_v(gConf_D0D0)
-  READ_v(gConf_D0D1)
-  READ_v(gConf_D1D2)
-  READ_v(gConf_D1D1)
-
-  for (ijk = 0; ijk < nn; ++ijk)
-  {
-    n_U0[ijk] = dq2_dq1(patch,dir,_x_,ijk);
-    n_U1[ijk] = dq2_dq1(patch,dir,_y_,ijk);
-    n_U2[ijk] = dq2_dq1(patch,dir,_z_,ijk);
-
-    /* normalization */
-    double Norm2 =
-(gConf_D0D0[ijk]*pow(n_U0[ijk], 2) + 2.0*gConf_D0D1[ijk]*
-n_U0[ijk]*n_U1[ijk] + 2.0*gConf_D0D2[ijk]*n_U0[ijk]*n_U2[ijk] +
-gConf_D1D1[ijk]*pow(n_U1[ijk], 2) + 2.0*gConf_D1D2[ijk]*n_U1[ijk]*
-n_U2[ijk] + gConf_D2D2[ijk]*pow(n_U2[ijk], 2));
-
-    double Norm = sqrt(Norm2);
-
-    n_U0[ijk] /= Norm;
-    n_U1[ijk] /= Norm;
-    n_U2[ijk] /= Norm;
-
-  }
-  adm->n_U0 = n_U0;
-  adm->n_U1 = n_U1;
-  adm->n_U2 = n_U2;
+  n_conformal_unit_normal(adm,dir,0);
 }
 
 

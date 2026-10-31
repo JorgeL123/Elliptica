@@ -418,8 +418,119 @@ void bh_update_inner_BC(Physics_T *const phys)
 }
 
 
-/* updating conformal normal vector and its derivatives on 
-// apparent horizon. 
+/* conformal unit normal of the perfect sphere r = const:
+// sConf^i = m^i/N, m^i = igConf^{ij} n_j, N^2 = m^i n_i, n_j = x_j/r,
+// and dsConf^i/dx^k = (dm^i/dx^k - sConf^i dN/dx^k)/N. */
+static void update_sConf_dsConf_metric_normal(Physics_T *const phys)
+{
+  Grid_T *const grid = mygrid(phys,Ftype("BH_around_IB"));
+  const double BH_center_x = Getd("center_x");
+  const double BH_center_y = Getd("center_y");
+  const double BH_center_z = Getd("center_z");
+  const char *const aux =
+    "bh__n,dbh__n_D0,dbh__n_D1,dbh__n_D2,"
+    "bh__m_U0,bh__m_U1,bh__m_U2,"
+    "dbh__m_U0D0,dbh__m_U0D1,dbh__m_U0D2,"
+    "dbh__m_U1D0,dbh__m_U1D1,dbh__m_U1D2,"
+    "dbh__m_U2D0,dbh__m_U2D1,dbh__m_U2D2";
+
+  add_aux_fields(grid,aux);
+
+  FOR_ALL_p(grid->np)
+  {
+    Patch_T *patch = grid->patch[p];
+
+    READ_v(igConf_U0U0)
+    READ_v(igConf_U0U1)
+    READ_v(igConf_U0U2)
+    READ_v(igConf_U1U1)
+    READ_v(igConf_U1U2)
+    READ_v(igConf_U2U2)
+
+    REALLOC_v_WRITE_v(bh__n);
+    REALLOC_v_WRITE_v(bh__m_U0);
+    REALLOC_v_WRITE_v(bh__m_U1);
+    REALLOC_v_WRITE_v(bh__m_U2);
+
+    FOR_ALL_ijk
+    {
+      double x = patch->node[ijk]->x[0]-BH_center_x;
+      double y = patch->node[ijk]->x[1]-BH_center_y;
+      double z = patch->node[ijk]->x[2]-BH_center_z;
+      double r = sqrt(Pow2(x)+Pow2(y)+Pow2(z));
+      double n[3] = {x/r,y/r,z/r};
+
+      bh__m_U0[ijk] = igConf_U0U0[ijk]*n[0]+igConf_U0U1[ijk]*n[1]+igConf_U0U2[ijk]*n[2];
+      bh__m_U1[ijk] = igConf_U0U1[ijk]*n[0]+igConf_U1U1[ijk]*n[1]+igConf_U1U2[ijk]*n[2];
+      bh__m_U2[ijk] = igConf_U0U2[ijk]*n[0]+igConf_U1U2[ijk]*n[1]+igConf_U2U2[ijk]*n[2];
+      bh__n[ijk]    = sqrt(bh__m_U0[ijk]*n[0]+bh__m_U1[ijk]*n[1]+bh__m_U2[ijk]*n[2]);
+    }
+
+    dField_di(dbh__n_D0);
+    dField_di(dbh__n_D1);
+    dField_di(dbh__n_D2);
+    dField_di(dbh__m_U0D0);
+    dField_di(dbh__m_U0D1);
+    dField_di(dbh__m_U0D2);
+    dField_di(dbh__m_U1D0);
+    dField_di(dbh__m_U1D1);
+    dField_di(dbh__m_U1D2);
+    dField_di(dbh__m_U2D0);
+    dField_di(dbh__m_U2D1);
+    dField_di(dbh__m_U2D2);
+    READ_v(dbh__n_D0);
+    READ_v(dbh__n_D1);
+    READ_v(dbh__n_D2);
+    READ_v(dbh__m_U0D0);
+    READ_v(dbh__m_U0D1);
+    READ_v(dbh__m_U0D2);
+    READ_v(dbh__m_U1D0);
+    READ_v(dbh__m_U1D1);
+    READ_v(dbh__m_U1D2);
+    READ_v(dbh__m_U2D0);
+    READ_v(dbh__m_U2D1);
+    READ_v(dbh__m_U2D2);
+
+    REALLOC_v_WRITE_v(bh_sConf_U0);
+    REALLOC_v_WRITE_v(bh_sConf_U1);
+    REALLOC_v_WRITE_v(bh_sConf_U2);
+    REALLOC_v_WRITE_v(dbh_sConf_U0D0);
+    REALLOC_v_WRITE_v(dbh_sConf_U0D1);
+    REALLOC_v_WRITE_v(dbh_sConf_U0D2);
+    REALLOC_v_WRITE_v(dbh_sConf_U1D0);
+    REALLOC_v_WRITE_v(dbh_sConf_U1D1);
+    REALLOC_v_WRITE_v(dbh_sConf_U1D2);
+    REALLOC_v_WRITE_v(dbh_sConf_U2D0);
+    REALLOC_v_WRITE_v(dbh_sConf_U2D1);
+    REALLOC_v_WRITE_v(dbh_sConf_U2D2);
+
+    FOR_ALL_ijk
+    {
+      double N = bh__n[ijk];
+
+      bh_sConf_U0[ijk] = bh__m_U0[ijk]/N;
+      bh_sConf_U1[ijk] = bh__m_U1[ijk]/N;
+      bh_sConf_U2[ijk] = bh__m_U2[ijk]/N;
+
+      dbh_sConf_U0D0[ijk] = (dbh__m_U0D0[ijk] - bh_sConf_U0[ijk]*dbh__n_D0[ijk])/N;
+      dbh_sConf_U0D1[ijk] = (dbh__m_U0D1[ijk] - bh_sConf_U0[ijk]*dbh__n_D1[ijk])/N;
+      dbh_sConf_U0D2[ijk] = (dbh__m_U0D2[ijk] - bh_sConf_U0[ijk]*dbh__n_D2[ijk])/N;
+
+      dbh_sConf_U1D0[ijk] = (dbh__m_U1D0[ijk] - bh_sConf_U1[ijk]*dbh__n_D0[ijk])/N;
+      dbh_sConf_U1D1[ijk] = (dbh__m_U1D1[ijk] - bh_sConf_U1[ijk]*dbh__n_D1[ijk])/N;
+      dbh_sConf_U1D2[ijk] = (dbh__m_U1D2[ijk] - bh_sConf_U1[ijk]*dbh__n_D2[ijk])/N;
+
+      dbh_sConf_U2D0[ijk] = (dbh__m_U2D0[ijk] - bh_sConf_U2[ijk]*dbh__n_D0[ijk])/N;
+      dbh_sConf_U2D1[ijk] = (dbh__m_U2D1[ijk] - bh_sConf_U2[ijk]*dbh__n_D1[ijk])/N;
+      dbh_sConf_U2D2[ijk] = (dbh__m_U2D2[ijk] - bh_sConf_U2[ijk]*dbh__n_D2[ijk])/N;
+    }
+  }
+
+  remove_aux_fields(grid,aux);
+}
+
+/* updating conformal normal vector and its derivatives on
+// apparent horizon.
 // NOTE: bh_sConf^i = psi^2 bh_s^i and bh_sConf_i = psi^-2 bh_s_i.
 // NOTE: bh_sConf^i is independent of psi.
 // NOTE: it's difficult to resolve derivatives of normal vector in 
@@ -430,7 +541,22 @@ void bh_update_sConf_dsConf(Physics_T *const phys)
   /* it assumes perfect S2 to use analytic formulae */
   if (!strcmp_i(Gets("surface_type"),"perfect_s2"))
     Warning("this function only supports 'surface_type = perfect_s2'!");
-  
+
+  /* "<BH>_sConf_method":
+  // flat_radial (default): sConf^i = x^i/r normalized with gConf,
+  //   only normal to the sphere if x^i/r is an eigenvector of gConf
+  //   (e.g. conformally flat or non-spinning, non-boosted Kerr-Schild).
+  // metric_normal: sConf^i = igConf^{ij} n_j normalized, n_j = x_j/r. */
+  sprintf(phys->par,"%s_%s",phys->stype,"sConf_method");
+  const char *const method = PgetsEZ(phys->par);
+  if (method && strcmp_i(method,"metric_normal"))
+  {
+    update_sConf_dsConf_metric_normal(phys);
+    return;
+  }
+  else if (method && !strcmp_i(method,"flat_radial"))
+    Errors("Unknown option '%s' for sConf_method.\n",method);
+
   Grid_T *const grid = mygrid(phys,Ftype("BH_around_IB"));
   const double BH_center_x = Getd("center_x");
   const double BH_center_y = Getd("center_y");
